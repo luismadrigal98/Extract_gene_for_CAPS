@@ -237,7 +237,7 @@ def main():
             print(f"ROI {roi_name} and {len(mapped_sequences)} mapped sequences saved to {output_file}")
     
     finally:
-        if remove_temp:
+        if args.remove_temp:
             shutil.rmtree(temp_dir)
             print(f"Removed temporary directory: {temp_dir}")
 
