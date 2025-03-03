@@ -64,14 +64,32 @@ def map_roi(roi_file, target_file, temp_dir):
         print(f"Warning: Target file not found: {target_file}")
         return []
     
-    output_file = os.path.join(temp_dir, f"map_{os.path.basename(roi_file)}_vs_{os.path.basename(target_file)}")
+    # Create a more descriptive output filename with basename only
+    roi_basename = os.path.basename(roi_file)
+    target_basename = os.path.basename(target_file)
+    output_file = os.path.join(temp_dir, f"map_{roi_basename}_vs_{target_basename}.paf")
     
     try:
         # Add more verbose output for debugging
         print(f"Running minimap2 with target: {target_file}")
+        print(f"Output will be written to: {output_file}")
+        
+        # Check if temp_dir exists and is writable
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir, exist_ok=True)
+            print(f"Created temp directory: {temp_dir}")
+        
+        if not os.access(temp_dir, os.W_OK):
+            print(f"Warning: Temp directory {temp_dir} is not writable")
+            return []
+        
+        # Use the -a option for SAM output which may be more reliable
+        cmd = ["minimap2", target_file, roi_file, "-o", output_file]
+        print(f"Running command: {' '.join(cmd)}")
+        
         result = subprocess.run(
-            ["minimap2", "-o", output_file, target_file, roi_file], 
-            check=False,  # Don't raise exception immediately
+            cmd,
+            check=False,
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True
@@ -80,11 +98,16 @@ def map_roi(roi_file, target_file, temp_dir):
         # Handle error cases
         if result.returncode != 0:
             print(f"Error running minimap2 for {target_file}: {result.stderr}")
+            print(f"Command output: {result.stdout}")
             return []
             
         # Check if output file was created
-        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
-            print(f"Warning: minimap2 output file is empty or not created: {output_file}")
+        if not os.path.exists(output_file):
+            print(f"Warning: minimap2 output file not created: {output_file}")
+            return []
+        
+        if os.path.getsize(output_file) == 0:
+            print(f"Warning: minimap2 output file is empty: {output_file}")
             return []
             
         # Process mapping results
@@ -92,13 +115,14 @@ def map_roi(roi_file, target_file, temp_dir):
         with open(output_file) as f:
             for line in f:
                 fields = line.strip().split("\t")
-                if len(fields) >= 9:
+                if len(fields) >= 10:  # PAF format has at least 12 fields
                     roi_name = fields[0]
                     target_name = fields[5]
                     target_start = int(fields[7])
                     target_end = int(fields[8])
                     mappings.append((roi_name, target_name, target_start, target_end))
         
+        print(f"Found {len(mappings)} mappings in {output_file}")
         return mappings
         
     except Exception as e:
@@ -112,8 +136,14 @@ def main():
     parser.add_argument("-f", "--reference", help="Reference fasta file", required=True)
     parser.add_argument("-t", "--targets", help="Target fasta file(s) to map the ROI against", required=True, nargs='+')
     parser.add_argument("-o", "--output_prefix", help="Prefix for output files", default="roi_sequences")
+    parser.add_argument("--temp_dir", help="Directory to store temporary files", default="./temp_files")
     
     args = parser.parse_args()
+    
+    # Create a custom temp directory in the current working directory
+    temp_dir = args.temp_dir
+    os.makedirs(temp_dir, exist_ok=True)
+    print(f"Using temporary directory: {temp_dir}")
     
     # Parse ROI information
     roi_list = []
