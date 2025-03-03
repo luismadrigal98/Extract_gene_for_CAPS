@@ -137,7 +137,8 @@ def main():
     parser.add_argument("-t", "--targets", help="Target fasta file(s) to map the ROI against", required=True, nargs='+')
     parser.add_argument("-o", "--output_prefix", help="Prefix for output files", default="roi_sequences")
     parser.add_argument("--temp_dir", help="Directory to store temporary files", default="./temp_files")
-    
+    parser.add_argument("--remove_temp", help="Remove temporary directory after processing", action="store_true")
+
     args = parser.parse_args()
     
     # Create a custom temp directory in the current working directory
@@ -182,10 +183,12 @@ def main():
                 print(f"Warning: Could not extract ROI sequence for {roi_name}")
                 continue
                 
-            # Create a temporary fasta file containing the ROI sequence
+            # Create ROI fasta file in the user-specified temp directory
             roi_fasta = os.path.join(temp_dir, f"roi_{roi_name}.fasta")
             with open(roi_fasta, "w") as f:
                 f.write(f">{roi_name}\n{roi_seq}\n")
+            
+            print(f"Created ROI file: {roi_fasta}")
             
             # Map ROI to each target
             mapped_sequences = {}
@@ -234,8 +237,9 @@ def main():
             print(f"ROI {roi_name} and {len(mapped_sequences)} mapped sequences saved to {output_file}")
     
     finally:
-        # Clean up
-        shutil.rmtree(temp_dir)
+        if remove_temp:
+            shutil.rmtree(temp_dir)
+            print(f"Removed temporary directory: {temp_dir}")
 
 if __name__ == "__main__":
     main()
