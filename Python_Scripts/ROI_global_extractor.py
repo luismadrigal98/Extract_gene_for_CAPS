@@ -173,9 +173,6 @@ def main():
     
     processed_reference = process_fasta(reference_lines)
     
-    # Create temporary directory for mapping files
-    temp_dir = tempfile.mkdtemp()
-    
     try:
         for _, (chrom, start, end) in enumerate(roi_list):
             roi_name = f"{chrom}_{start}_{end}"
