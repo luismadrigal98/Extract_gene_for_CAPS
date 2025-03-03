@@ -59,21 +59,51 @@ def map_roi(roi_file, target_file, temp_dir):
     """
     Map ROI to target sequence using minimap2 and return mapped positions.
     """
+    # First check if the target file exists
+    if not os.path.exists(target_file):
+        print(f"Warning: Target file not found: {target_file}")
+        return []
+    
     output_file = os.path.join(temp_dir, f"map_{os.path.basename(roi_file)}_vs_{os.path.basename(target_file)}")
-    subprocess.run(["minimap2", "-o", output_file, target_file, roi_file], check=True)
     
-    mappings = []
-    with open(output_file) as f:
-        for line in f:
-            fields = line.strip().split("\t")
-            if len(fields) >= 9:
-                roi_name = fields[0]
-                target_name = fields[5]
-                target_start = int(fields[7])
-                target_end = int(fields[8])
-                mappings.append((roi_name, target_name, target_start, target_end))
-    
-    return mappings
+    try:
+        # Add more verbose output for debugging
+        print(f"Running minimap2 with target: {target_file}")
+        result = subprocess.run(
+            ["minimap2", "-o", output_file, target_file, roi_file], 
+            check=False,  # Don't raise exception immediately
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True
+        )
+        
+        # Handle error cases
+        if result.returncode != 0:
+            print(f"Error running minimap2 for {target_file}: {result.stderr}")
+            return []
+            
+        # Check if output file was created
+        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+            print(f"Warning: minimap2 output file is empty or not created: {output_file}")
+            return []
+            
+        # Process mapping results
+        mappings = []
+        with open(output_file) as f:
+            for line in f:
+                fields = line.strip().split("\t")
+                if len(fields) >= 9:
+                    roi_name = fields[0]
+                    target_name = fields[5]
+                    target_start = int(fields[7])
+                    target_end = int(fields[8])
+                    mappings.append((roi_name, target_name, target_start, target_end))
+        
+        return mappings
+        
+    except Exception as e:
+        print(f"Exception while processing {target_file}: {str(e)}")
+        return []
 
 def main():
     parser = argparse.ArgumentParser(description="ROI sequence extractor and mapper")
@@ -117,7 +147,7 @@ def main():
     temp_dir = tempfile.mkdtemp()
     
     try:
-        for idx, (chrom, start, end) in enumerate(roi_list):
+        for _, (chrom, start, end) in enumerate(roi_list):
             roi_name = f"{chrom}_{start}_{end}"
             roi_seq = roi_extractor(chrom, start, end, processed_reference)
             
@@ -133,7 +163,19 @@ def main():
             # Map ROI to each target
             mapped_sequences = {}
             
+            # Filter out any invalid target files
+            valid_targets = []
             for target_file in args.targets:
+                if os.path.exists(target_file):
+                    valid_targets.append(target_file)
+                else:
+                    print(f"Warning: Target file not found: {target_file}")
+            
+            if not valid_targets:
+                print("Error: No valid target files provided.")
+                return
+
+            for target_file in valid_targets:
                 # Read target fasta
                 with open(target_file, "r") as f:
                     target_lines = f.read().splitlines()
