@@ -70,29 +70,44 @@ def map_roi(roi_file, target_file, temp_dir):
     output_file = os.path.join(temp_dir, f"map_{roi_basename}_vs_{target_basename}.paf")
     
     try:
-        # Add more verbose output for debugging
+        # Check if minimap2 is installed
+        try:
+            version_result = subprocess.run(
+                ["minimap2", "--version"],
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            print(f"Using minimap2 version: {version_result.stdout.strip()}")
+        except FileNotFoundError:
+            print("Error: minimap2 not found in PATH. Please install minimap2.")
+            return []
+        
         print(f"Running minimap2 with target: {target_file}")
         print(f"Output will be written to: {output_file}")
         
-        # Check if temp_dir exists and is writable
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir, exist_ok=True)
-            print(f"Created temp directory: {temp_dir}")
+        # Check file sizes for debugging
+        roi_size = os.path.getsize(roi_file)
+        target_size = os.path.getsize(target_file)
+        print(f"ROI file size: {roi_size} bytes, Target file size: {target_size} bytes")
         
-        if not os.access(temp_dir, os.W_OK):
-            print(f"Warning: Temp directory {temp_dir} is not writable")
-            return []
-        
-        # Use the -a option for SAM output which may be more reliable
-        cmd = ["minimap2", target_file, roi_file, "-o", output_file]
+        # Use more appropriate parameters for large sequences
+        # -K2g sets batch size to 2G to handle larger sequences
+        # -I 8G increases index size
+        # --secondary=no skips secondary alignments for speed
+        cmd = ["minimap2", "-x", "asm5", "-K2g", "-I", "8G", "--secondary=no", 
+               "-o", output_file, target_file, roi_file]
         print(f"Running command: {' '.join(cmd)}")
         
+        # Use a longer timeout for large sequences
         result = subprocess.run(
             cmd,
             check=False,
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            text=True
+            text=True,
+            timeout=300  # 5 minute timeout
         )
         
         # Handle error cases
@@ -104,10 +119,13 @@ def map_roi(roi_file, target_file, temp_dir):
         # Check if output file was created
         if not os.path.exists(output_file):
             print(f"Warning: minimap2 output file not created: {output_file}")
-            return []
-        
-        if os.path.getsize(output_file) == 0:
-            print(f"Warning: minimap2 output file is empty: {output_file}")
+            # Try an alternative approach
+            print("Trying alternative approach with direct output redirection...")
+            redirect_cmd = f"minimap2 -x asm5 -K2g {target_file} {roi_file} > {output_file}"
+            os.system(redirect_cmd)
+            
+        if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
+            print(f"Warning: minimap2 output file is empty or not created: {output_file}")
             return []
             
         # Process mapping results
@@ -125,6 +143,9 @@ def map_roi(roi_file, target_file, temp_dir):
         print(f"Found {len(mappings)} mappings in {output_file}")
         return mappings
         
+    except subprocess.TimeoutExpired:
+        print(f"Error: minimap2 timed out for {target_file}")
+        return []
     except Exception as e:
         print(f"Exception while processing {target_file}: {str(e)}")
         return []
