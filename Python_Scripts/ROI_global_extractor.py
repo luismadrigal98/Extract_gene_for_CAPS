@@ -57,21 +57,13 @@ def roi_extractor(chromosome, start, end, fasta_data):
 def extract_mapped_regions(processed_target, mappings, target_file):
     """
     Extract mapped regions from target sequences based on mapping information.
-    
-    Args:
-        processed_target: List of (header, sequence) tuples from the target file
-        mappings: List of (roi_name, target_name, start, end) tuples from minimap2
-        target_file: Path to the target file, used to get the basename
-        
-    Returns:
-        Dictionary with keys as sequence headers and values as extracted sequences
     """
     header_dict = {h.split()[0]: h for h, _ in processed_target}
     sequence_dict = {h.split()[0]: seq for h, seq in processed_target}
     extracted = {}
     
-    # Get the target basename (like "06.767")
-    target_basename = os.path.basename(target_file).split('.')[0]
+    # Get the target basename (like "06.767") - preserve everything before the last period
+    target_basename = ".".join(os.path.basename(target_file).split('.')[:-1])
     
     for roi_name, short_target_name, start, end in mappings:
         # Get the target sequence
