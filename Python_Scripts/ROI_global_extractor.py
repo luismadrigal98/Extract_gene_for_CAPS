@@ -11,7 +11,6 @@ Author: Luis J. Madrigal Roca
 import argparse
 import os
 import subprocess
-import tempfile
 import shutil
 
 def process_fasta(fasta_lines):
@@ -55,22 +54,47 @@ def roi_extractor(chromosome, start, end, fasta_data):
             return sequence[start-1:end]
     return ""
 
+def extract_mapped_regions(processed_target, mappings, target_file):
+    """
+    Extract mapped regions from target sequences based on mapping information.
+    
+    Args:
+        processed_target: List of (header, sequence) tuples from the target file
+        mappings: List of (roi_name, target_name, start, end) tuples from minimap2
+        target_file: Path to the target file, used to get the basename
+        
+    Returns:
+        Dictionary with keys as sequence headers and values as extracted sequences
+    """
+    header_dict = {h.split()[0]: h for h, _ in processed_target}
+    sequence_dict = {h.split()[0]: seq for h, seq in processed_target}
+    extracted = {}
+    
+    # Get the target basename (like "06.767")
+    target_basename = os.path.basename(target_file).split('.')[0]
+    
+    for roi_name, short_target_name, start, end in mappings:
+        # Get the target sequence
+        target_seq = sequence_dict.get(short_target_name, "")
+        if target_seq:
+            # Create a header that includes the target basename
+            header = f"{target_basename}_{short_target_name}_{start}_{end}"
+            extracted[header] = target_seq[start-1:end]
+    
+    return extracted
+
 def map_roi(roi_file, target_file, temp_dir):
-    """
-    Map ROI to target sequence using minimap2 and return mapped positions.
-    """
     # First check if the target file exists
     if not os.path.exists(target_file):
         print(f"Warning: Target file not found: {target_file}")
         return []
     
-    # Create a more descriptive output filename with basename only
     roi_basename = os.path.basename(roi_file)
     target_basename = os.path.basename(target_file)
     output_file = os.path.join(temp_dir, f"map_{roi_basename}_vs_{target_basename}.paf")
-    
+
     try:
-        # Check if minimap2 is installed
+        # Report minimap2 version
         try:
             version_result = subprocess.run(
                 ["minimap2", "--version"],
@@ -86,63 +110,65 @@ def map_roi(roi_file, target_file, temp_dir):
         
         print(f"Running minimap2 with target: {target_file}")
         print(f"Output will be written to: {output_file}")
-        
-        # Check file sizes for debugging
+
+        # File size checks
         roi_size = os.path.getsize(roi_file)
         target_size = os.path.getsize(target_file)
         print(f"ROI file size: {roi_size} bytes, Target file size: {target_size} bytes")
         
-        # Use more appropriate parameters for large sequences
-        # -K2g sets batch size to 2G to handle larger sequences
-        # -I 8G increases index size
-        # --secondary=no skips secondary alignments for speed
-        cmd = ["minimap2", "-x", "asm5", "-K2g", "-I", "8G", "--secondary=no", 
-               "-o", output_file, target_file, roi_file]
-        print(f"Running command: {' '.join(cmd)}")
+        # Prepare minimap2 command
+        cmd = [
+            "minimap2",
+            "-x", "asm5",
+            "--secondary=no",
+            "-o", output_file,
+            target_file,
+            roi_file
+        ]
         
-        # Use a longer timeout for large sequences
-        result = subprocess.run(
+        print(f"Running minimap2 command: {' '.join(cmd)}")
+
+        # Run minimap2
+        subprocess.run(
             cmd,
             check=False,
-            stderr=subprocess.PIPE,
-            stdout=subprocess.PIPE,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300
         )
-        
-        # Handle error cases
-        if result.returncode != 0:
-            print(f"Error running minimap2 for {target_file}: {result.stderr}")
-            print(f"Command output: {result.stdout}")
-            return []
-            
-        # Check if output file was created
-        if not os.path.exists(output_file):
-            print(f"Warning: minimap2 output file not created: {output_file}")
-            # Try an alternative approach
-            print("Trying alternative approach with direct output redirection...")
-            redirect_cmd = f"minimap2 -x asm5 -K2g {target_file} {roi_file} > {output_file}"
-            os.system(redirect_cmd)
-            
+
+        # Verify PAF file creation
         if not os.path.exists(output_file) or os.path.getsize(output_file) == 0:
             print(f"Warning: minimap2 output file is empty or not created: {output_file}")
             return []
-            
-        # Process mapping results
-        mappings = []
+        
+        # Parse the PAF file, picking the highest number of matches
+        best_record = None
+        best_matches = 0
+
         with open(output_file) as f:
             for line in f:
                 fields = line.strip().split("\t")
-                if len(fields) >= 10:  # PAF format has at least 12 fields
-                    roi_name = fields[0]
-                    target_name = fields[5]
-                    target_start = int(fields[7])
-                    target_end = int(fields[8])
-                    mappings.append((roi_name, target_name, target_start, target_end))
+                if len(fields) >= 12:
+                    # fields[9] => number of matching bases
+                    n_matches = int(fields[9])
+                    if n_matches > best_matches:
+                        best_matches = n_matches
+                        best_record = fields
         
-        print(f"Found {len(mappings)} mappings in {output_file}")
+        mappings = []
+        if best_record:
+            # PAF: QNAME(0), QLEN(1), QSTART(2), QEND(3), STRAND(4),
+            #      TNAME(5), TLEN(6), TSTART(7), TEND(8),
+            #      NMATCHES(9), ALNLEN(10), MAPQ(11)
+            roi_name = best_record[0]
+            short_target_name = best_record[5]
+            target_start = int(best_record[7])
+            target_end = int(best_record[8])
+            mappings.append((roi_name, short_target_name, target_start, target_end))
+        
+        print(f"Found {len(mappings)} alignment(s) in {output_file} (best only).")
         return mappings
-        
+    
     except subprocess.TimeoutExpired:
         print(f"Error: minimap2 timed out for {target_file}")
         return []
@@ -235,18 +261,12 @@ def main():
                 
                 # Map ROI to target using minimap2
                 mappings = map_roi(roi_fasta, target_file, temp_dir)
-                
-                # Extract mapped regions
-                for roi_name, target_name, target_start, target_end in mappings:
-                    target_seq = ""
-                    for header, sequence in processed_target:
-                        if header.split()[0] == target_name:
-                            target_seq = sequence[target_start-1:target_end]
-                            break
-                    
-                    if target_seq:
-                        target_basename = os.path.basename(target_file).split('.')[0]
-                        mapped_sequences[f"{target_basename}_{target_name}_{target_start}_{target_end}"] = target_seq
+
+                # Extract sequences using our function
+                extracted = extract_mapped_regions(processed_target, mappings, target_file)
+
+                # Merge extracted sequences into mapped_sequences
+                mapped_sequences.update(extracted)
             
             # Write output file with all mapped sequences
             output_file = f"{args.output_prefix}_ROI_{roi_name}.fasta"
