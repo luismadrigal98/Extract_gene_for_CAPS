@@ -30,6 +30,7 @@ import logging
 # Local dependencies
 
 from src.remapping_variants import *
+from src.masking_variants import *
 
 # Set up logging
 logging.basicConfig(
@@ -65,61 +66,25 @@ def main():
     remap_parser.add_argument('--temp_dir', type=str, required=False, help='Temporary directory for intermediate files',
                             default=None)
     remap_parser.add_argument('--keep', action='store_true', help='Keep intermediate files')
+
+    # Diagnostic markers searching
+
+    masking_parser = subparsers.add_parser('Mask', help='Using the vcf file, process genic regions (inferred from the gff3 file) and filter the variants to be used for the design of the markers based on the ROI list (which must be in concordance with the reference used for variant calling).')
     
+    masking_parser.add_argument('--vcf', type=str, required=True, help='Input VCF file')
+    masking_parser.add_argument('--gff3', type=str, required=True, help='Input GFF3 file')
+    masking_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
+    masking_parser.add_argument('--output', type=str, required=True, help='Output file for the screened variants. This is a vcf file with the variants that are in the ROI list and are in genic regions.')
+
     # Execute the right command
     args = parser.parse_args()
     if args.command == 'Remap':
         remap_variants(args.current_ref, args.new_ref, args.ROI_list, args.output, args.minimap2, args.minimap2_opts, args.samtools_exe,
                         args.temp_dir, args.keep)
+    elif args.command == 'Mask':
+        mask_variants(args.vcf, args.gff3, args.ROI_list, args.output)
     else:
         parser.print_help()
 
 if __name__ == "__main__":
     main()
-
-"""
-
-## 4. Implementation Design for Multi-Evidence Marker Pipeline
-
-```markdown
-## Implementation Design: Multi-Evidence Marker Pipeline
-
-The following modular design implements the multi-evidence approach:
-
-### Components
-
-1. **Annotation Processor** (`annotation_processor.py`)
-   - Input: GFF3/GTF annotation file, reference genome
-   - Output: BED file with genic regions
-   - Function: Creates a mask for restricting analysis to genes
-
-2. **Variant Processor** (`variant_processor.py`)
-   - Input: VCF file from F2 sequencing, BED file with genes
-   - Output: Filtered VCF with candidate heterozygous sites in genes
-   - Function: Identifies segregating variants with appropriate frequencies
-
-3. **Assembly Validator** (`assembly_validator.py`)
-   - Input: Filtered VCF, focal assembly, alternative assembly
-   - Output: Validated variant list with confirmed differences
-   - Function: Checks if variants from F2 data exist between parental assemblies
-
-4. **Primer Designer** (`primer_designer.py`)
-   - Input: Validated variant list, surrounding sequence context
-   - Output: Primer pairs with quality metrics and predicted products
-   - Function: Designs optimal primers for validated polymorphic sites
-
-### Execution Flow
-
-```bash
-# 1. Process annotation to create genic mask
-python annotation_processor.py -a annotation.gff -r reference.fa -o genes.bed
-
-# 2. Filter variants using F2 data and genic mask
-python variant_processor.py -v f2_data.vcf -b genes.bed -o candidate_markers.vcf
-
-# 3. Validate variants across parental assemblies
-python assembly_validator.py -v candidate_markers.vcf -f focal.fa -a alternative.fa -o validated_markers.tsv
-
-# 4. Design primers for validated markers
-python primer_designer.py -m validated_markers.tsv -r reference.fa -o primer_pairs.tsv
-"""
