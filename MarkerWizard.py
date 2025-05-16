@@ -67,7 +67,7 @@ def main():
                             default=None)
     remap_parser.add_argument('--keep', action='store_true', help='Keep intermediate files')
 
-    # Diagnostic markers searching
+    # VCF initial filtering
 
     masking_parser = subparsers.add_parser('Mask', help='Using the vcf file, process genic regions (inferred from the gff3 file) and filter the variants to be used for the design of the markers based on the ROI list (which must be in concordance with the reference used for variant calling).')
     
@@ -76,6 +76,23 @@ def main():
     masking_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
     masking_parser.add_argument('--output', type=str, required=True, help='Output file for the screened variants. This is a vcf file with the variants that are in the ROI list and are in genic regions.')
 
+    # Searching for diagnostic markers
+
+    screen_parser = subparsers.add_parser('Screen', help='Screen the variants for diagnostic markers')
+
+    screen_parser_global = screen_parser.add_argument_group("Global arguments")
+
+    screen_parser_global.add_argument('--vcf', type=str, required=True, help='Input VCF file. This is the filtered vcf file with the variants that are in the ROI list and are in genic regions.')
+    screen_parser_global.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
+    screen_parser_global.add_argument('--output_dir', type=str, required=True, help='Output file for the screened variants. This is a directory where individual tab-delimited files per region of interest are going to be created. Each file contains the ID of the marker, and the coordinates for further extraction when primers are going to be design.')
+
+    screen_parser_filtering = screen_parser.add_argument_group("Filtering by conditions to meet. High level filtering before starting the application of the rules to detect diagnostic markers.")
+
+    screen_parser_filtering.add_argument('--min_qual', type=float, required=False, help='Minimum quality score for the variants to be considered. Default is 20.', default=20)
+    screen_parser_filtering.add_argument('--min_dp', type=int, required=False, help='Minimum depth of coverage for the variants to be considered. Default is 5.', default=10) # Remember, you are working with shallow sequencing data, so the depth of coverage is going to be low. The default is 5, but you can change it to 10 if you want.
+
+    screen_parser_filtering.add_argument
+
     # Execute the right command
     args = parser.parse_args()
     if args.command == 'Remap':
@@ -83,6 +100,8 @@ def main():
                         args.temp_dir, args.keep)
     elif args.command == 'Mask':
         mask_variants(args.vcf, args.gff3, args.ROI_list, args.output)
+    elif args.command == 'Screen':
+        pass #screen_variants()
     else:
         parser.print_help()
 
