@@ -9,6 +9,7 @@ The markers will be restricted to genic regions.
 The pipeline will be divided into several steps:
 1. **Annotation Processing**: This step will take the GFF3/GTF annotation file and the reference genome as input and will output a BED file with the genic regions. This will be used to create a mask for restricting the analysis to genes.
 2. **Variant Processing**: This step will take the VCF file from the F2 sequencing and the BED file with the genes as input and will output a filtered VCF with candidate heterozygous sites in genes. This will be used to identify segregating variants with appropriate frequencies.
+                        Also, at this level, we are going to filter or ROI, that is, the inversion coordinates.
 3. **Assembly Validation**: This step will take the filtered VCF and the focal assembly as input and will output a validated variant list with confirmed differences. This will be used to check if the variants from the F2 data exist between the parental assemblies.
 4. **Primer Design**: This step will take the validated variant list and the surrounding sequence context as input and will output primer pairs with quality metrics and predicted products. This will be used to design optimal primers for validated polymorphic sites.
 The pipeline will be modular, with each step implemented in a separate script. The scripts will be designed to be run independently, but they will also be able to be run as part of the pipeline. The pipeline will be designed to be flexible and extensible, so that new steps can be added easily in the future.
@@ -21,7 +22,59 @@ The pipeline will be designed to be user-friendly, with clear documentation and 
 
 """
 
+import os
+import argparse
+import sys
+import logging
 
+# Local dependencies
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from src import *
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("marker_wizard.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+def main():
+
+    # Define the parser
+
+    parser = argparse.ArgumentParser(description="Marker Wizard: A pipeline for designing markers for genotyping F2 populations.")
+    subparsers = parser.add_subparsers(dest='command', help='Subcommands')
+
+    # Remapping the variant to new reference genome
+
+    remap_parser = subparsers.add_parser('Remap', help='Remap the variant to the new reference genome')
+
+    remap_parser.add_argument('--current_ref', type=str, required=True, help='Current reference genome file')
+    remap_parser.add_argument('--new_ref', type=str, required=True, help='New reference genome file')
+    remap_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be remapped')
+    remap_parser.add_argument('--output', type=str, required=True, help='Output file for the remapped variants')
+    remap_parser.add_argument('--minimap2', type=str, required=False, help='Path to minimap2 executable',
+                            default='/home/l338m483/.conda/envs/PyR/bin/minimap2')
+    remap_parser.add_argument('--minimap2_opts', type=str, required=False, help='Options for minimap2',
+                            default='-x asm5 -t 10 -p 0.9 -N 0')
+    
+    # Execute the right command
+    args = parser.parse_args()
+    if args.command == 'Remap':
+        remap_variants(args.current_ref, args.new_ref, args.ROI_list, args.output, args.minimap2, args.minimap2_opts)
+    else:
+        parser.print_help()
+
+
+
+
+
+"""
 
 ## 4. Implementation Design for Multi-Evidence Marker Pipeline
 
@@ -66,3 +119,4 @@ python assembly_validator.py -v candidate_markers.vcf -f focal.fa -a alternative
 
 # 4. Design primers for validated markers
 python primer_designer.py -m validated_markers.tsv -r reference.fa -o primer_pairs.tsv
+"""
