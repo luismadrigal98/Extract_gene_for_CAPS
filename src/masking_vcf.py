@@ -25,35 +25,46 @@ def read_vcf(path):
     """Read a VCF file into a pandas DataFrame."""
     logger.info(f"Reading VCF file: {path}")
     try:
-        # Capture metadata headers
-        headers = []
+        # First, peek at the file to identify header structure
+        vcf_header_lines = []
+        column_names = None
+        
         with open(path, 'r') as f:
             for line in f:
                 if line.startswith('##'):
-                    headers.append(line)
+                    vcf_header_lines.append(line.strip())
                 elif line.startswith('#CHROM'):
-                    column_header = line
+                    column_names = line.strip().split('\t')
+                    # Replace #CHROM with CHROM for consistent access
+                    column_names[0] = 'CHROM'  
                     break
         
-        # Read data portion
-        logger.debug("Parsing VCF data into DataFrame")
+        if not column_names:
+            raise ValueError("Could not find column header line in VCF file")
+        
+        logger.info(f"Found {len(column_names)} columns in VCF header")
+            
+        # Now read the data portion
         vcf_df = pd.read_csv(
             path, 
             comment='#',
-            dtype={'#CHROM': str, 'POS': int, 'ID': str, 'REF': str, 'ALT': str,
-                    'QUAL': str, 'FILTER': str, 'INFO': str},
-            sep='\t'
-        ).rename(columns={'#CHROM': 'CHROM'})
+            sep='\t',
+            names=column_names,
+            dtype={'CHROM': str}
+        )
         
-        # Store headers for later
-        vcf_df.attrs['headers'] = headers
-        vcf_df.attrs['column_header'] = column_header
+        # Log column names for debugging
+        logger.debug(f"DataFrame columns: {vcf_df.columns.tolist()}")
+        
+        # Store original headers for writing back
+        vcf_df.attrs['headers'] = vcf_header_lines
+        vcf_df.attrs['column_header'] = '\t'.join(column_names).replace('CHROM', '#CHROM') + '\n'
         
         logger.info(f"Successfully loaded {len(vcf_df)} variants from VCF file")
         return vcf_df
     
     except Exception as e:
-        logger.error(f"Error reading VCF file: {e}")
+        logger.error(f"Error reading VCF file: {e}", exc_info=True)
         raise
 
 def mask_variants(vcf, gff3, roi_list, output):
