@@ -72,11 +72,11 @@ def build_fasta_for_ROI(ROI_list, current_ref, output_file):
     
     # Extract sequences for each ROI and write to output fasta file
     with open(output_file, "w") as out_fasta:
-        for _, row in tqdm(roi_df.iterrows(), total=roi_df.shape[0] - 1, desc="Extracting ROIs"):
+        for _, row in tqdm(roi_df.iterrows(), total=roi_df.shape[0], desc="Extracting ROIs"):
             name = row["ROI_name"]
             chrom = row["Chrom"]
-            start = row["Start"]
-            end = row["End"]
+            start = row["Start"] + 1  # Convert to 1-based indexing
+            end = row["End"] + 1
             
             if chrom in ref_sequences:
                 seq = ref_sequences[chrom].seq[start:end]
