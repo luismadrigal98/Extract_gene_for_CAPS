@@ -59,7 +59,7 @@ def main():
     remap_parser.add_argument('--minimap2', type=str, required=False, help='Path to minimap2 executable',
                             default='/home/l338m483/.conda/envs/PyR/bin/minimap2')
     remap_parser.add_argument('--minimap2_opts', type=str, required=False, help='Options for minimap2',
-                            default='-x asm5 -t 10 -p 0.9 -N 50 --secondary=no')
+                            default='-x asm10 --cs=long -c r 100000 -t 10 -p 0.9 -N 50 --secondary=no')
     remap_parser.add_argument('--samtools_exe', type=str, required=False, help='Path to samtools executable',
                             default='/home/l338m483/.conda/envs/PyR/bin/samtools')
     remap_parser.add_argument('--temp_dir', type=str, required=False, help='Temporary directory for intermediate files',
