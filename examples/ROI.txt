@@ -1,0 +1,3 @@
+ROI Chr Start   End
+inv6    Chr_06  1282855 5375159
+inv11   Chr_11  16837455    17559327

@@ -50,6 +50,38 @@ def index_fasta(fasta_file, samtools_exe = "/home/l338m483/.conda/envs/PyR/bin/s
     logging.info(f"Indexing fasta file with command: {command}")
     subprocess.run(command, shell=True, check=True)
 
+def build_fasta_for_ROI(ROI_list, current_ref, output_file):
+    """
+    Build a fasta file for the regions of interest (ROI) from the current reference genome.
+    
+    :param ROI_list: Path to the ROI list file. This is a tab-separated file with the format: <chromosome> <start> <end>.
+    :param current_ref: Path to the current reference genome file in fasta format.
+    :param output_file: Path to the output fasta file where the sequences will be saved.
+    
+    :return: Path to the output fasta file. 
+    """
+    
+    # Read the ROI list
+    roi_df = pd.read_csv(ROI_list, sep="\t", header=None, names=["chrom", "start", "end"])
+    
+    # Read the current reference genome
+    ref_sequences = SeqIO.to_dict(SeqIO.parse(current_ref, "fasta"))
+    
+    # Extract sequences for each ROI and write to output fasta file
+    with open(output_file, "w") as out_fasta:
+        for _, row in roi_df.iterrows():
+            chrom = row["chrom"]
+            start = row["start"]
+            end = row["end"]
+            
+            if chrom in ref_sequences:
+                seq = ref_sequences[chrom].seq[start:end]
+                SeqIO.write(SeqIO.SeqRecord(seq, id=f"{chrom}:{start}-{end}", description=""), out_fasta, "fasta")
+            else:
+                logging.warning(f"Chromosome {chrom} not found in reference genome.")
+    
+    logging.info(f"Fasta file for ROI saved to {output_file}")
+
 def run_minimap2(current_features, new_ref, output_file, minimap2, minimap2_opts = "-x asm5 -t 10 -p 0.9 -N 0"):
     """
     Run minimap2 to remap the current features to the new reference genome.
