@@ -11,8 +11,11 @@ import os
 import subprocess
 import pandas as pd
 import logging
+import shutil
+from tempfile import mkdtemp
 from Bio import SeqIO
 from Bio.Seq import Seq
+from tqdm import tqdm
 
 # Set up logging
 logging.basicConfig(
@@ -62,21 +65,22 @@ def build_fasta_for_ROI(ROI_list, current_ref, output_file):
     """
     
     # Read the ROI list
-    roi_df = pd.read_csv(ROI_list, sep="\t", header=None, names=["chrom", "start", "end"])
+    roi_df = pd.read_csv(ROI_list, sep="\t", header=0, names=["ROI_name", "Chrom", "Start", "End"])
     
     # Read the current reference genome
     ref_sequences = SeqIO.to_dict(SeqIO.parse(current_ref, "fasta"))
     
     # Extract sequences for each ROI and write to output fasta file
     with open(output_file, "w") as out_fasta:
-        for _, row in roi_df.iterrows():
-            chrom = row["chrom"]
-            start = row["start"]
-            end = row["end"]
+        for _, row in tqdm(roi_df.iterrows(), total=roi_df.shape[0] - 1, desc="Extracting ROIs"):
+            name = row["ROI_name"]
+            chrom = row["Chrom"]
+            start = row["Start"]
+            end = row["End"]
             
             if chrom in ref_sequences:
                 seq = ref_sequences[chrom].seq[start:end]
-                SeqIO.write(SeqIO.SeqRecord(seq, id=f"{chrom}:{start}-{end}", description=""), out_fasta, "fasta")
+                SeqIO.write(SeqIO.SeqRecord(seq, id=f"{name}_{chrom}:{start}-{end}", description=""), out_fasta, "fasta")
             else:
                 logging.warning(f"Chromosome {chrom} not found in reference genome.")
     
@@ -101,3 +105,45 @@ def run_minimap2(current_features, new_ref, output_file, minimap2, minimap2_opts
     subprocess.run(command, shell=True, check=True)
     
     return output_file
+
+def remap_variants(current_ref, new_ref, ROI_list, output_file, minimap2, minimap2_opts, samtools_exe, temp_dir, keep_temp = False):
+    """
+    Remap the variants from the current reference genome to the new reference genome.
+
+    :param current_ref: Path to the current reference genome file in fasta format.
+    :param new_ref: Path to the new reference genome file in fasta format.
+    :param ROI_list: Path to the ROI list file. This is a tab-separated file with the format: <chromosome> <start> <end>.
+    :param output_file: Path to the output file where the remapped variants will be saved.
+    :param minimap2: Path to the minimap2 executable.
+    :param minimap2_opts: Options for minimap2.
+    :param temp_dir: Temporary directory for intermediate files.
+    :param keep_temp: If True, keep the temporary files. If False, delete them after use.
+    
+    :return: None
+    """
+    
+    # Index the new reference genome
+    index_fasta(new_ref, samtools_exe = samtools_exe)
+
+    # Create the temporary directory if it doesn't exist
+    if temp_dir is None:
+        temp_dir = mkdtemp(dir = os.getcwd())
+        logging.info(f"Temporary directory created at {temp_dir}")
+    elif not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+    
+    # Build the fasta file for the ROI
+    roi_fasta = os.path.join(temp_dir, "ROI_sequences.fasta")
+    build_fasta_for_ROI(ROI_list, current_ref, roi_fasta)
+    
+    # Run minimap2 to remap the variants
+    run_minimap2(roi_fasta, new_ref, output_file, minimap2, minimap2_opts)
+    
+    logging.info(f"Remapping completed. Output saved to {output_file}")
+
+    # Clean up temporary files if specified
+    if not keep_temp:
+        shutil.rmtree(temp_dir)
+        logging.info(f"Temporary files in {temp_dir} have been deleted.")
+    else:
+        logging.info(f"Temporary files in {temp_dir} have been kept.")

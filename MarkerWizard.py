@@ -29,9 +29,7 @@ import logging
 
 # Local dependencies
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from src import *
+from src.remapping_variants import *
 
 # Set up logging
 logging.basicConfig(
@@ -62,11 +60,17 @@ def main():
                             default='/home/l338m483/.conda/envs/PyR/bin/minimap2')
     remap_parser.add_argument('--minimap2_opts', type=str, required=False, help='Options for minimap2',
                             default='-x asm5 -t 10 -p 0.9 -N 0')
+    remap_parser.add_argument('--samtools_exe', type=str, required=False, help='Path to samtools executable',
+                            default='/home/l338m483/.conda/envs/PyR/bin/samtools')
+    remap_parser.add_argument('--temp_dir', type=str, required=False, help='Temporary directory for intermediate files',
+                            default=None)
+    remap_parser.add_argument('--keep', action='store_true', help='Keep intermediate files')
     
     # Execute the right command
     args = parser.parse_args()
     if args.command == 'Remap':
-        remap_variants(args.current_ref, args.new_ref, args.ROI_list, args.output, args.minimap2, args.minimap2_opts)
+        remap_variants(args.current_ref, args.new_ref, args.ROI_list, args.output, args.minimap2, args.minimap2_opts, args.samtools_exe,
+                        args.temp_dir, args.keep)
     else:
         parser.print_help()
 
