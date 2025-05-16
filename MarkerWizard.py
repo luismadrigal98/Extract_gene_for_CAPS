@@ -30,7 +30,7 @@ import logging
 # Local dependencies
 
 from src.remapping_variants import *
-from src.masking_variants import *
+from src.masking_vcf import *
 
 # Set up logging
 logging.basicConfig(

@@ -11,6 +11,7 @@ on a list of regions of interest (ROI) provided by the user. The output is a VCF
 import io
 import pandas as pd
 from tqdm import tqdm
+from intervaltree import IntervalTree
 
 def read_vcf(path):
     with open(path, 'r') as f:
@@ -49,20 +50,25 @@ def mask_variants(vcf, gff3, roi_list, output):
     roi_df = pd.read_csv(roi_list, sep='\t', header=0)
 
     # Filter the VCF variants to keep only the chromosomes and positions in the ROI list
+    vcf_df = vcf_df[vcf_df.apply(
+        lambda x: any((x['CHROM'] == r['Chrom']) and 
+                      (r['Start'] <= x['POS'] <= r['End'])
+                      for _, r in roi_df.iterrows()),
+        axis=1)]
     
-    vcf_df = vcf_df[vcf_df['CHROM'].isin(roi_df[1]) & vcf_df['POS'] > roi_df[2].astype(int) & vcf_df['POS'] < roi_df[3].astype(int)]
-    
-    # Determine which variants are in genic regions
-
-    vcf_df['in_genic'] = False
-
-    for _, row in tqdm(gff3_df.iterrows(), total=gff3_df.shape[0], desc='Filtering variants'):
+    # Build interval trees per chromosome (much faster)
+    gene_trees = {}
+    for _, row in gff3_df.iterrows():
         chrom = row[0]
-        start = row[3] + 1
-        end = row[4] + 1
+        if chrom not in gene_trees:
+            gene_trees[chrom] = IntervalTree()
+        gene_trees[chrom].add(row[3], row[4]+1, row[8])  # Start, end, gene info
 
-        # Check if the variant is in the genic region
-        vcf_df.loc[(vcf_df['CHROM'] == chrom) & (vcf_df['POS'] >= start) & (vcf_df['POS'] <= end), 'in_genic'] = True
+    # Efficient lookup
+    vcf_df['in_genic'] = vcf_df.apply(
+        lambda x: any(gene_trees.get(x['CHROM'], IntervalTree()).overlap(x['POS'], x['POS']+1)),
+        axis=1
+    )
 
     # Filter the VCF variants to keep
 
