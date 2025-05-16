@@ -64,9 +64,15 @@ def build_fasta_for_ROI(ROI_list, current_ref, output_file):
     :return: Path to the output fasta file. 
     """
     
-    # Read the ROI list
-    roi_df = pd.read_csv(ROI_list, sep="\t", header=0, names=["ROI_name", "Chrom", "Start", "End"])
-    
+    # Read the ROI list - try with flexible whitespace parsing
+    try:
+        # First attempt with explicit tab
+        roi_df = pd.read_csv(ROI_list, sep="\t", header=0, names=["ROI_name", "Chrom", "Start", "End"])
+    except pandas.errors.ParserError:
+        # If that fails, try with flexible whitespace
+        logging.info("Tab delimiter failed, trying with flexible whitespace parsing")
+        roi_df = pd.read_csv(ROI_list, delim_whitespace=True, header=0, names=["ROI_name", "Chrom", "Start", "End"])
+        
     # Read the current reference genome
     ref_sequences = SeqIO.to_dict(SeqIO.parse(current_ref, "fasta"))
     
