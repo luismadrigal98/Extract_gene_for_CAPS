@@ -125,7 +125,8 @@ def mask_variants(vcf, gff3, roi_list, output):
             chrom = row[0]
             if chrom not in gene_trees:
                 gene_trees[chrom] = IntervalTree()
-            gene_trees[chrom].add(row[3], row[4]+1, row[8])  # Start, end, gene info
+            # Create an Interval object or use the dictionary-style assignment
+            gene_trees[chrom][row[3]:row[4]+1] = row[8]  # This is the correct way
         
         logger.info(f"Built interval trees for {len(gene_trees)} chromosomes")
 

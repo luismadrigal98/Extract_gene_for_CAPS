@@ -91,7 +91,12 @@ def main():
     screen_parser_filtering.add_argument('--min_qual', type=float, required=False, help='Minimum quality score for the variants to be considered. Default is 20.', default=20)
     screen_parser_filtering.add_argument('--min_dp', type=int, required=False, help='Minimum depth of coverage for the variants to be considered. Default is 5.', default=10) # Remember, you are working with shallow sequencing data, so the depth of coverage is going to be low. The default is 5, but you can change it to 10 if you want.
 
-    screen_parser_filtering.add_argument
+    screen_parser_rules = screen_parser.add_argument_group("Rules to detect diagnostic markers. These rules are going to be applied to the filtered variants.")
+
+    screen_parser_rules.add_argument('--distance_to_closest_marker', type=int, required=False, help='Distance to the closest marker. Default is 1000 bp.', default=1000) # This is the distance to the closest marker. If the distance is too small, the markers are going to be too close to each other and they are going to be difficult to amplify.
+    screen_parser_rules.add_argument('--non_informative_thr_F2s', type=int, required=False, help='Non informative threshold for the F2s. In other words, how many missing genotypes are we willing to accept. Default is 2.', default=2)
+
+
 
     # Execute the right command
     args = parser.parse_args()
