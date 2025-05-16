@@ -106,6 +106,66 @@ def run_minimap2(current_features, new_ref, output_file, minimap2, minimap2_opts
     
     return output_file
 
+def process_minimap2_output(paf_file, output_file):
+    """
+    This script processes the output of minimap2 and generate a new coordinate file to work over the new reference genome.
+
+    :param paf_file: Path to the minimap2 output file in PAF format.
+    :param output_file: Path to the output file where the processed coordinates will be saved.
+
+    :return: None
+    """
+    
+    # Read the PAF file
+    paf_df = pd.read_csv(paf_file, sep='\t', header=None)
+
+    # Get the number of columns in the PAF file
+    num_columns = paf_df.shape[1]
+
+    # Define the mandatory column names (first 12 columns are standard in PAF)
+    mandatory_columns = [
+        'query_name', 'query_length', 'query_start', 'query_end', 'strand',
+        'target_name', 'target_length', 'target_start', 'target_end',
+        'num_matching_bases', 'alignment_block_length', 'mapping_quality'
+        ]
+    
+    # Define the column names based on the number of columns
+    # Add column names based on what's available
+    if num_columns >= 12:
+        # Add mandatory columns
+        column_names = mandatory_columns.copy()
+        
+        # Add remaining columns with generic names
+        for i in range(12, num_columns):
+            column_names.append(f'col_{i+1}')
+            
+        paf_df.columns = column_names
+    else:
+        raise ValueError(f"PAF file has too few columns: {num_columns}, expected at least 12")
+    
+    # Filter duplicate entries (duplicated query names) and keep only the one with the highest mapping quality
+    paf_df = paf_df.sort_values('mapping_quality', ascending=False).drop_duplicates('query_name')
+
+    # Checking that all duplicates were removed
+    assert paf_df['query_name'].duplicated().sum() == 0
+
+    # Reordering by query name
+    paf_df = paf_df.sort_values('query_name')
+
+    # Export the processed PAF data into a new ROI file, tab delimited
+    with open(output_file, 'w') as out_f:
+        # Write the header
+        out_f.write("ROI_name\tChrom\tStart\tEnd\n")
+        
+        # Iterate over the rows of the PAF dataframe
+        for _, row in tqdm(paf_df.iterrows(), total=paf_df.shape[0], desc="Processing PAF output"):
+            roi_name = row['query_name']
+            chrom = row['target_name']
+            start = int(row['target_start']) + 1
+            end = int(row['target_end']) + 1
+            out_f.write(f"{roi_name}\t{chrom}\t{start}\t{end}\n")
+    logging.info(f"Processed PAF output saved to {output_file}")
+
 def remap_variants(current_ref, new_ref, ROI_list, output_file, minimap2, minimap2_opts, samtools_exe, temp_dir, keep_temp = False):
     """
     Remap the variants from the current reference genome to the new reference genome.
@@ -136,8 +196,14 @@ def remap_variants(current_ref, new_ref, ROI_list, output_file, minimap2, minima
     roi_fasta = os.path.join(temp_dir, "ROI_sequences.fasta")
     build_fasta_for_ROI(ROI_list, current_ref, roi_fasta)
     
+    # Create a temporary name for the paf file
+    paf_file = os.path.join(temp_dir, "minimap2_output.paf")
+
     # Run minimap2 to remap the variants
-    run_minimap2(roi_fasta, new_ref, output_file, minimap2, minimap2_opts)
+    run_minimap2(roi_fasta, new_ref, paf_file, minimap2, minimap2_opts)
+
+    # Process the minimap2 output and retrieve the new coordinates
+    process_minimap2_output(paf_file, output_file)
     
     logging.info(f"Remapping completed. Output saved to {output_file}")
 
