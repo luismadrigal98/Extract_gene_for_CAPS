@@ -31,6 +31,7 @@ import logging
 
 from src.remapping_variants import *
 from src.masking_vcf import *
+from src.screen_variants import *
 
 # Set up logging
 logging.basicConfig(
@@ -95,8 +96,7 @@ def main():
 
     screen_parser_rules.add_argument('--distance_to_closest_marker', type=int, required=False, help='Distance to the closest marker. Default is 1000 bp.', default=1000) # This is the distance to the closest marker. If the distance is too small, the markers are going to be too close to each other and they are going to be difficult to amplify.
     screen_parser_rules.add_argument('--non_informative_thr_F2s', type=int, required=False, help='Non informative threshold for the F2s. In other words, how many missing genotypes are we willing to accept. Default is 2.', default=2)
-
-
+    screen_parser_rules.add_argument('--heterozygous_thr_support_F2s', type=int, required=False, help='Heterozygous threshold for the F2s. In other words, how many heterozygous genotypes are we willing to accept. Default is 2.', default=2)
 
     # Execute the right command
     args = parser.parse_args()
@@ -106,7 +106,8 @@ def main():
     elif args.command == 'Mask':
         mask_variants(args.vcf, args.gff3, args.ROI_list, args.output)
     elif args.command == 'Screen':
-        pass #screen_variants()
+        screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_qual, args.min_dp,
+                        args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
     else:
         parser.print_help()
 
