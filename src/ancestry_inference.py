@@ -211,13 +211,13 @@ def extract_genotype(genotype_field, return_quality=False):
     
     return "./." if not return_quality else ("./.", 0, 0)
 
-def infer_ancestry(vcf, ROI_list, ancestry_log, output, estimate_likelihood=False, context_window=20):
+def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
     """
     Infer ancestry and parental alleles for genetic variants based on F2 segregation patterns.
     Process each ROI separately and calculate both individual variant and contextual group likelihoods.
     """
     # 1. Load relationship data
-    ancestry_df = pd.read_csv(ancestry_log, sep='\t')
+    ancestry_df = pd.read_csv(ancestry_log, header=0, sep='\t')
     
     # 2. Group F2 samples by their parental lines
     f2_groups = {}
