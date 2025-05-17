@@ -15,71 +15,63 @@ import sys
 sys.path.append('.')
 from src.masking_vcf import read_vcf
 
-def calculate_likelihood(genotype_counts, p1_allele, p2_allele, error_rate=0.05):
+def calculate_likelihood(genotype_counts, p1_allele, p2_allele, quality_data=None, error_rate=0.05):
     """
-    Calculate likelihood of parental genotype combination using F2 segregation patterns
+    Calculate likelihood with quality-weighted error model
     
-    Parameters:
-    -----------
-    genotype_counts: dict
-        Counts of genotypes observed in F2s {'0/0': n1, '0/1': n2, '1/1': n3}
-    p1_allele: str
-        Inferred allele for parent 1 ('0' or '1')
-    p2_allele: str
-        Inferred allele for parent 2 ('0' or '1')
-    error_rate: float
-        Estimated genotyping error rate (default: 0.05)
-        
-    Returns:
-    --------
-    float: Log-likelihood score
+    Args:
+        genotype_counts: Dict of counts for each genotype
+        p1_allele, p2_allele: Parental alleles to test
+        quality_data: Optional dict with quality info {genotype: (count, depth, qual)}
+        error_rate: Base error rate to adjust with quality metrics
     """
     import math
     
-    # Expected F2 proportions based on parental genotypes
+    # Expected proportions (same as before)
     expected_proportions = {
-        # Parent1/Parent2 genotype: {expected F2 genotype proportions}
-        ('0', '0'): {'0/0': 1.0, '0/1': 0.0, '1/1': 0.0},  # Both parents homozygous ref
-        ('0', '1'): {'0/0': 0.25, '0/1': 0.5, '1/1': 0.25},  # One parent homozygous ref, one homozygous alt
-        ('1', '0'): {'0/0': 0.25, '0/1': 0.5, '1/1': 0.25},  # One parent homozygous alt, one homozygous ref
-        ('1', '1'): {'0/0': 0.0, '0/1': 0.0, '1/1': 1.0}   # Both parents homozygous alt
+        ('0', '0'): {'0/0': 1.0, '0/1': 0.0, '1/1': 0.0},
+        ('0', '1'): {'0/0': 0.25, '0/1': 0.5, '1/1': 0.25},
+        ('1', '0'): {'0/0': 0.25, '0/1': 0.5, '1/1': 0.25},
+        ('1', '1'): {'0/0': 0.0, '0/1': 0.0, '1/1': 1.0}
     }
     
-    # Get expected proportions for this parental combination
     key = (p1_allele, p2_allele)
     if key not in expected_proportions:
-        return float('-inf')  # Invalid combination
+        return float('-inf')
         
     expected = expected_proportions[key]
     
-    # Calculate log-likelihood with error model
-    total_count = sum(count for gt, count in genotype_counts.items() if gt != './.')
-    if total_count == 0:
-        return float('-inf')
-    
+    # Calculate log-likelihood with quality-adjusted error model
     log_likelihood = 0
+    
     for genotype, count in genotype_counts.items():
         if genotype == './.':
             continue
+            
+        # Adjust error rate based on quality if available
+        adj_error_rate = error_rate
+        if quality_data and genotype in quality_data:
+            # Higher depth and qual score = lower error rate
+            _, depth, qual = quality_data[genotype]
+            depth_factor = min(depth / 20, 1.0)  # Cap at depth of 20
+            adj_error_rate = error_rate * (1 - depth_factor) * (1 - qual)
         
-        # Apply error model
+        # Calculate probability with adjusted error rate
         prob = 0
         for true_gt, true_prob in expected.items():
             if true_gt == genotype:
-                # Correct genotype called
-                prob += true_prob * (1 - error_rate)
+                prob += true_prob * (1 - adj_error_rate)
             else:
-                # Error in genotype calling
-                prob += true_prob * (error_rate / 2)  # Divide by 2 as there are 2 possible error states
+                prob += true_prob * (adj_error_rate / 2)
                 
         if prob > 0:
             log_likelihood += count * math.log(prob)
         else:
-            log_likelihood += count * -100  # Very low probability for zero cases
+            log_likelihood += count * -100
     
     return log_likelihood
 
-def infer_parental_genotypes(genotype_counts, error_rate=0.05):
+def infer_parental_genotypes(genotype_counts, error_rate=0.05, quality_data=None):
     """
     Infer most likely parental genotype combination using maximum likelihood
     """
@@ -94,7 +86,7 @@ def infer_parental_genotypes(genotype_counts, error_rate=0.05):
     # Calculate likelihood for each combination
     likelihoods = {}
     for p1, p2 in parent_combinations:
-        likelihood = calculate_likelihood(genotype_counts, p1, p2, error_rate)
+        likelihood = calculate_likelihood(genotype_counts, p1, p2, quality_data, error_rate)
         likelihoods[(p1, p2)] = likelihood
     
     # Find combination with maximum likelihood
@@ -154,44 +146,76 @@ def infer_block_ancestry(vcf_df, samples, chrom, start, end, error_rate=0.05):
         'variant_count': len(all_counts)
     }
 
-def infer_ancestry(vcf, ROI_list, ancestry_log, output, estimate_likelihood=False):
+def extract_genotype(genotype_field, return_quality=False):
+    """
+    Extract genotype and quality metrics from VCF format field.
+    
+    Input formats can be:
+    - Simple genotype: "0/0"
+    - Complex field: "1/1:90,9,0:0,3" (GT:PL:AD format)
+    - Missing data: "./."
+    
+    Args:
+        genotype_field: The genotype field from VCF
+        return_quality: If True, return quality metrics as well
+    
+    Returns:
+        If return_quality=False: standardized genotype only
+        If return_quality=True: tuple of (genotype, depth, qual_score)
+    """
+    if pd.isna(genotype_field):
+        return "./." if not return_quality else ("./.", 0, 0)
+        
+    if isinstance(genotype_field, str):
+        # Default values
+        gt = genotype_field
+        depth = 0
+        qual = 0
+        
+        if ':' in genotype_field:
+            parts = genotype_field.split(':')
+            gt = parts[0]
+            
+            # Extract depth from AD field (typically 3rd field)
+            if len(parts) >= 3 and ',' in parts[2]:
+                try:
+                    depths = list(map(int, parts[2].split(',')))
+                    depth = sum(depths)  # Total read depth
+                except ValueError:
+                    pass
+                    
+            # Extract quality from PL field (typically 2nd field)
+            if len(parts) >= 2 and ',' in parts[1]:
+                try:
+                    phred_scores = list(map(int, parts[1].split(',')))
+                    # Lower PL value = higher confidence
+                    if gt == '0/0' and len(phred_scores) > 0:
+                        qual = 1 / (1 + phred_scores[0])
+                    elif gt in ('0/1', '1/0') and len(phred_scores) > 1:
+                        qual = 1 / (1 + phred_scores[1])
+                    elif gt == '1/1' and len(phred_scores) > 2:
+                        qual = 1 / (1 + phred_scores[2])
+                except ValueError:
+                    pass
+            
+        # Standardize genotype format
+        std_gt = "./."
+        if gt in ['0/0', '0|0']:
+            std_gt = '0/0'
+        elif gt in ['0/1', '1/0', '0|1', '1|0']:
+            std_gt = '0/1'
+        elif gt in ['1/1', '1|1']:
+            std_gt = '1/1'
+        
+        return std_gt if not return_quality else (std_gt, depth, qual)
+    
+    return "./." if not return_quality else ("./.", 0, 0)
+
+def infer_ancestry(vcf, ROI_list, ancestry_log, output, estimate_likelihood=False, context_window=20):
     """
     Infer ancestry and parental alleles for genetic variants based on F2 segregation patterns.
-    This function analyzes genotype patterns in F2 populations to infer the most likely
-    alleles present in their parental lines. It processes a VCF file, groups samples by
-    their parental crosses, and estimates which allele each parent contributed based on
-    segregation patterns in the F2 generation.
-    Parameters
-    ----------
-    vcf : str
-        Path to the VCF file containing genotype data for all samples
-    ROI_list : list or str
-        List of regions of interest or path to file containing regions of interest
-    ancestry_log : str
-        Path to tab-separated file containing sample relationship data (must include
-        columns: 'ID', 'FC', 'Common', 'Alt')
-    output : str
-        Path where the output file will be saved (tab-separated format)
-    estimate_likelihood : bool, optional
-        Whether to calculate likelihood of the ancestry inference (default: False)
-    Returns
-    -------
-    None
-        Results are written to the specified output file containing:
-        - Variant information (chromosome, position, reference, alternative alleles)
-        - Inferred alleles for each parent
-        - Likelihood of inference (if requested)
-    Notes
-    -----
-    The ancestry log file must contain at least four columns:
-    - 'ID': Sample identifier
-    - 'FC': Generation code (F1, F2, etc.)
-    - 'Common': Common parent identifier
-    - 'Alt': Alternative parent identifier
-    The inference works best with adequate sample sizes for each F2 group.
-
+    Process each ROI separately and calculate both individual variant and contextual group likelihoods.
     """
-    
     # 1. Load relationship data
     ancestry_df = pd.read_csv(ancestry_log, sep='\t')
     
@@ -204,50 +228,108 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, estimate_likelihood=Fals
                 f2_groups[key] = []
             f2_groups[key].append(row['ID'])
     
-    # 3. Load VCF and extract variants in ROI
+    # 3. Load VCF data
     vcf_df = read_vcf(vcf)
     
-    # 4. For each variant, calculate allele frequencies per F2 group
-    results = []
-    for _, variant in vcf_df.iterrows():
-        variant_results = {'CHROM': variant['CHROM'], 'POS': variant['POS'], 
-                          'REF': variant['REF'], 'ALT': variant['ALT']}
-        
-        for cross, samples in f2_groups.items():
-            common_parent, alt_parent = cross.split('_')
-            
-            # Count genotypes (0/0, 0/1, 1/1) across F2s in this group
-            genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
-            
-            for sample in samples:
-                if sample in vcf_df.columns:
-                    gt = extract_genotype(variant[sample])  # Helper function needed
-                    genotype_counts[gt] = genotype_counts.get(gt, 0) + 1
-            
-            # Simple inference: 
-            # - If most F2s are homozygous ref: common parent is likely homozygous ref
-            # - If most F2s are homozygous alt: common parent is likely homozygous alt
-            # - If many F2s are het: parents likely have different genotypes
-            
-            ratio_het = genotype_counts['0/1'] / sum(v for k,v in genotype_counts.items() if k != './.')
-            ratio_hom_alt = genotype_counts['1/1'] / sum(v for k,v in genotype_counts.items() if k != './.')
-            
-            # Infer parental genotypes and calculate likelihood if requested
-            # (Simplified inference shown here)
-            if ratio_het > 0.4:  # Expected ~0.5 for het
-                common_allele = '0'
-                alt_allele = '1'
-                likelihood = calculate_likelihood(genotype_counts, '0', '1') if estimate_likelihood else None
-            else:
-                # More complex inference needed
-                pass
-                
-            variant_results[f"{common_parent}_allele"] = common_allele
-            variant_results[f"{alt_parent}_allele"] = alt_allele
-            if estimate_likelihood:
-                variant_results[f"likelihood"] = likelihood
-                
-        results.append(variant_results)
+    # 4. Load ROI list
+    try:
+        roi_df = pd.read_csv(ROI_list, sep='\t')
+    except:
+        roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
     
-    # 5. Output results
-    pd.DataFrame(results).to_csv(output, sep='\t', index=False)
+    # 5. Process each ROI separately
+    for _, roi in roi_df.iterrows():
+        roi_name = roi['ROI_name']
+        chrom = roi['Chrom']
+        start = roi['Start']
+        end = roi['End']
+        
+        print(f"Processing ROI: {roi_name} ({chrom}:{start}-{end})")
+        
+        # Filter variants for this ROI
+        roi_variants = vcf_df[(vcf_df['CHROM'] == chrom) & 
+                                (vcf_df['POS'] >= start) & 
+                                (vcf_df['POS'] <= end)].copy()
+        
+        if len(roi_variants) == 0:
+            print(f"No variants found in ROI {roi_name}")
+            continue
+        
+        # Process each variant individually
+        results = []
+        for idx, variant in roi_variants.iterrows():
+            variant_record = {'CHROM': variant['CHROM'], 'POS': variant['POS'],
+                            'REF': variant['REF'], 'ALT': variant['ALT']}
+            
+            # For each cross (e.g., 664c_767c)
+            for cross, samples in f2_groups.items():
+                common_parent, alt_parent = cross.split('_')
+                
+                # Extract genotypes for this variant
+                genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
+                quality_data = {'0/0': [], '0/1': [], '1/1': []}
+
+                for sample in samples:
+                    if sample in roi_variants.columns:
+                        # Get genotype and quality metrics
+                        gt, depth, qual = extract_genotype(variant[sample], return_quality=True)
+                        genotype_counts[gt] += 1
+                        if gt != './.':
+                            quality_data[gt].append((1, depth, qual))  # Count, depth, qual
+
+                # Average quality metrics per genotype
+                avg_quality = {}
+                for gt, data in quality_data.items():
+                    if data:
+                        total_count = sum(d[0] for d in data)
+                        avg_depth = sum(d[0] * d[1] for d in data) / total_count
+                        avg_qual = sum(d[0] * d[2] for d in data) / total_count
+                        avg_quality[gt] = (genotype_counts[gt], avg_depth, avg_qual)
+
+                # Use quality-aware likelihood calculation
+                inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
+                
+                # Store results
+                variant_record[f"{common_parent}_allele"] = inference['p1_allele']
+                variant_record[f"{alt_parent}_allele"] = inference['p2_allele']
+                variant_record['likelihood'] = inference['log_likelihood']
+                variant_record['confidence'] = inference['confidence']
+                
+                # Store genotype counts for reference
+                variant_record[f'hom_ref_count'] = genotype_counts['0/0']
+                variant_record[f'het_count'] = genotype_counts['0/1']
+                variant_record[f'hom_alt_count'] = genotype_counts['1/1']
+                variant_record[f'missing_count'] = genotype_counts['./.']
+                
+            results.append(variant_record)
+        
+        # Now add contextual analysis
+        results_with_context = []
+        for i, result in enumerate(results):
+            # Define the context window (looking at neighboring variants)
+            start_idx = max(0, i - context_window//2)
+            end_idx = min(len(results) - 1, i + context_window//2)
+            context_variants = results[start_idx:end_idx+1]
+            
+            # Skip the current variant from context
+            context_variants = [v for v in context_variants if v['POS'] != result['POS']]
+            
+            # Calculate group likelihood
+            for parent in set([k.split('_')[0] for k in result.keys() if k.endswith('_allele')]):
+                # Count how many neighboring variants agree with this one
+                parent_allele = result.get(f"{parent}_allele")
+                if parent_allele:
+                    matching = sum(1 for v in context_variants if v.get(f"{parent}_allele") == parent_allele)
+                    total = sum(1 for v in context_variants if f"{parent}_allele" in v)
+                    result[f"{parent}_context_agreement"] = matching/total if total > 0 else None
+                    
+                    # Flag potential errors
+                    if matching/total < 0.25 and total >= 5:
+                        result[f"{parent}_potential_error"] = True
+            
+            results_with_context.append(result)
+        
+        # Write output for this ROI
+        roi_output = f"{output}_{roi_name}.tsv"
+        pd.DataFrame(results_with_context).to_csv(roi_output, sep='\t', index=False)
+        print(f"Results for ROI {roi_name} saved to {roi_output}")
