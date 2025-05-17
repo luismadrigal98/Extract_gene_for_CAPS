@@ -278,6 +278,12 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                         if gt != './.':
                             quality_data[gt].append((1, depth, qual))  # Count, depth, qual
 
+                # Add this debug code right after extracting genotype counts for a variant
+                if all(count == 0 for gt, count in genotype_counts.items() if gt != './.'):
+                    print(f"WARNING: Zero non-missing genotypes at {variant['CHROM']}:{variant['POS']}")
+                    print(f"Samples available: {[s for s in samples if s in roi_variants.columns]}")
+                    print(f"First few sample values: {[variant[s] for s in samples[:3] if s in roi_variants.columns]}")
+
                 # Average quality metrics per genotype
                 avg_quality = {}
                 for gt, data in quality_data.items():
