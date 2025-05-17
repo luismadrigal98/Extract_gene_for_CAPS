@@ -132,6 +132,7 @@ def mask_variants(vcf, gff3, roi_list, output):
 
         # Efficient lookup
         logger.info("Finding variants in genic regions")
+        roi_filtered_df = roi_filtered_df.copy()  # Create an explicit copy
         roi_filtered_df['in_genic'] = roi_filtered_df.apply(
             lambda x: any(gene_trees.get(x['CHROM'], IntervalTree()).overlap(x['POS'], x['POS']+1)),
             axis=1
@@ -147,6 +148,11 @@ def mask_variants(vcf, gff3, roi_list, output):
         logger.info(f"Final result: {final_count} variants in genic regions " +
                     f"({final_count/roi_filtered_count:.2%} of ROI variants, " +
                     f"{final_count/initial_variant_count:.2%} of all variants)")
+
+        # Add this to verify counts are correct:
+        if 'headers' in vcf_df.attrs:
+            header_count = len(vcf_df.attrs['headers']) + 1  # +1 for the column header
+            logger.info(f"VCF contains {header_count} header lines and {final_count} variant lines")
         
         # Write the filtered variants to the output VCF file
         logger.info(f"Writing filtered variants to {output}")
