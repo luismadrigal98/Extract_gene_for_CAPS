@@ -334,3 +334,31 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
         roi_output = f"{output}_{roi_name}.tsv"
         pd.DataFrame(results_with_context).to_csv(roi_output, sep='\t', index=False)
         print(f"Results for ROI {roi_name} saved to {roi_output}")
+        
+        # Create simplified output
+        simplified_results = []
+        for result in results_with_context:
+            simplified = {
+                'CHROM': result['CHROM'],
+                'POS': result['POS'],
+                'REF': result['REF'], 
+                'ALT': result['ALT']
+            }
+            
+            # Add all parental alleles
+            for key in result.keys():
+                if key.endswith('_allele') and not key.endswith('context_agreement'):
+                    parental = key.split('_')[0]
+                    allele_value = result[key]
+                    # Convert 0/1 to actual nucleotides for clarity
+                    simplified[parental] = result['REF'] if allele_value == '0' else result['ALT']
+            
+            # Add confidence
+            simplified['confidence'] = result['confidence']
+            
+            simplified_results.append(simplified)
+
+        # Write simplified output
+        simplified_output = f"{output}_simplified_{roi_name}.tsv"
+        pd.DataFrame(simplified_results).to_csv(simplified_output, sep='\t', index=False)
+        print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
