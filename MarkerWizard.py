@@ -86,7 +86,7 @@ def main():
     inference_parser.add_argument('--vcf', type=str, required=True, help='Input VCF file')
     inference_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
     inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved. This will allow to retrieve the identity of the alleles present in the original parental lines.') 
-    inference_parser.add_argument('')
+    #inference_parser.add_argument('')
 
     # Searching for diagnostic markers
 
