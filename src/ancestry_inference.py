@@ -288,7 +288,7 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                 missing_ratio = missing_samples / total_samples if total_samples > 0 else 1.0
 
                 # Skip likelihood calculation if too much data is missing
-                if missing_ratio > 0.8:  # You can adjust this threshold
+                if missing_ratio > 0.95:  # You can adjust this threshold
                     print(f"Skipping variant at {variant['CHROM']}:{variant['POS']} for cross {cross}: {missing_ratio:.2f} missing data")
                     variant_record[f"{common_parent}_allele"] = "N"  # Indicate insufficient data
                     variant_record[f"{alt_parent}_allele"] = "N"
