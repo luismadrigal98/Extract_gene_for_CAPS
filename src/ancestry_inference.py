@@ -346,6 +346,25 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
         pd.DataFrame(results_with_context)[ordered_cols].to_csv(roi_output, sep='\t', index=False)
         print(f"Results for ROI {roi_name} saved to {roi_output}")
 
+        # Create simplified results by excluding certain columns or selecting only essential ones
+        simplified_results = []
+        for result in results_with_context:
+            # Create a simplified version of each result with only the essential information
+            simplified_result = {
+                'CHROM': result['CHROM'],
+                'POS': result['POS'],
+                'REF': result['REF'],
+                'ALT': result['ALT'],
+                'confidence': result['confidence']
+            }
+            
+            # Add all parental allele columns
+            for col in result.keys():
+                if col.endswith('_allele') and not col.endswith('context_agreement'):
+                    simplified_result[col] = result[col]
+            
+            simplified_results.append(simplified_result)
+
         # For the simplified output, maintain consistent ordering
         simplified_output = f"{output}_simplified_{roi_name}.tsv"
         simplified_cols = ['CHROM', 'POS', 'REF', 'ALT'] + [col for col in simplified_results[0].keys() 
