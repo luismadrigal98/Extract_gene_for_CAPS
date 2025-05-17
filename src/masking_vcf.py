@@ -67,7 +67,7 @@ def read_vcf(path):
         logger.error(f"Error reading VCF file: {e}", exc_info=True)
         raise
 
-def mask_variants(vcf, gff3, roi_list, output):
+def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True):
     """
     Mask the variants in the VCF file based on the GFF3 file and ROI list.
     
@@ -76,6 +76,7 @@ def mask_variants(vcf, gff3, roi_list, output):
     gff3 (str): Path to the input GFF3 file.
     roi_list (str): Path to the ROI list file.
     output (str): Path to the output VCF file.
+    only_biallelic (bool): If True, only biallelic variants will be preserved.
     
     Returns:
     None
@@ -144,6 +145,13 @@ def mask_variants(vcf, gff3, roi_list, output):
         
         # Drop the 'in_genic' column
         final_df = final_df.drop(columns=['in_genic'])
+
+        # Preserve only biallelic variants
+        if only_biallelic:
+            logger.info("Filtering for biallelic variants")
+            final_df = final_df[final_df['ALT'].str.contains(',') == False]
+            biallelic_count = len(final_df)
+            logger.info(f"Filtered to {biallelic_count} biallelic variants")
         
         logger.info(f"Final result: {final_count} variants in genic regions " +
                     f"({final_count/roi_filtered_count:.2%} of ROI variants, " +
