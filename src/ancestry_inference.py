@@ -330,35 +330,25 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
             
             results_with_context.append(result)
         
-        # Write output for this ROI
+        # Write output for this ROI with organized columns
         roi_output = f"{output}_{roi_name}.tsv"
-        pd.DataFrame(results_with_context).to_csv(roi_output, sep='\t', index=False)
-        print(f"Results for ROI {roi_name} saved to {roi_output}")
-        
-        # Create simplified output
-        simplified_results = []
-        for result in results_with_context:
-            simplified = {
-                'CHROM': result['CHROM'],
-                'POS': result['POS'],
-                'REF': result['REF'], 
-                'ALT': result['ALT']
-            }
-            
-            # Add all parental alleles
-            for key in result.keys():
-                if key.endswith('_allele') and not key.endswith('context_agreement'):
-                    parental = key.split('_')[0]
-                    allele_value = result[key]
-                    # Convert 0/1 to actual nucleotides for clarity
-                    simplified[parental] = result['REF'] if allele_value == '0' else result['ALT']
-            
-            # Add confidence
-            simplified['confidence'] = result['confidence']
-            
-            simplified_results.append(simplified)
 
-        # Write simplified output
+        # Define column ordering for better readability
+        variant_cols = ['CHROM', 'POS', 'REF', 'ALT']
+        parental_cols = [col for col in results_with_context[0].keys() if col.endswith('_allele') and not col.endswith('context_agreement')]
+        likelihood_cols = ['likelihood', 'confidence']
+        count_cols = [col for col in results_with_context[0].keys() if any(x in col for x in ['count', 'context_agreement', 'potential_error'])]
+
+        # Order columns in a logical way
+        ordered_cols = variant_cols + parental_cols + likelihood_cols + count_cols
+
+        # Write the ordered DataFrame
+        pd.DataFrame(results_with_context)[ordered_cols].to_csv(roi_output, sep='\t', index=False)
+        print(f"Results for ROI {roi_name} saved to {roi_output}")
+
+        # For the simplified output, maintain consistent ordering
         simplified_output = f"{output}_simplified_{roi_name}.tsv"
-        pd.DataFrame(simplified_results).to_csv(simplified_output, sep='\t', index=False)
+        simplified_cols = ['CHROM', 'POS', 'REF', 'ALT'] + [col for col in simplified_results[0].keys() 
+                                                          if col not in ['CHROM', 'POS', 'REF', 'ALT', 'confidence']] + ['confidence']
+        pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
