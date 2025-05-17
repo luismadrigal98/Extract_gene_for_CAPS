@@ -9,6 +9,7 @@ This script is going to determine, based on the genotyping data of the F2s, the 
 
 import pandas as pd
 import sys
+import math
 
 # Add local directory to system path
 
