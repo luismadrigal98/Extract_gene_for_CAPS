@@ -266,6 +266,9 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
             total_genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
             total_samples_checked = 0
 
+            # Before processing crosses, create a dict to track alleles per parent
+            parental_alleles = {}
+
             for cross, samples in f2_groups.items():
                 common_parent, alt_parent = cross.split('_')
                 
@@ -290,10 +293,9 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                 # Skip likelihood calculation if too much data is missing
                 if missing_ratio > 0.95:  # You can adjust this threshold
                     print(f"Skipping variant at {variant['CHROM']}:{variant['POS']} for cross {cross}: {missing_ratio:.2f} missing data")
-                    variant_record[f"{common_parent}_allele"] = "N"  # Indicate insufficient data
-                    variant_record[f"{alt_parent}_allele"] = "N"
-                    variant_record['likelihood'] = float('nan')
-                    variant_record['confidence'] = 0
+                    # Store in the parent-specific dictionary instead of overwriting
+                    parental_alleles[common_parent] = "N"
+                    parental_alleles[alt_parent] = "N"
                 else:
                     # Calculate average quality metrics for each genotype
                     avg_quality = {}
@@ -307,10 +309,8 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                     
                     # Only calculate inference if we have enough data
                     inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
-                    
-                    # Store results
-                    variant_record[f"{common_parent}_allele"] = inference['p1_allele']
-                    variant_record[f"{alt_parent}_allele"] = inference['p2_allele']
+                    parental_alleles[common_parent] = inference['p1_allele']
+                    parental_alleles[alt_parent] = inference['p2_allele']
                     variant_record['likelihood'] = inference['log_likelihood']
                     variant_record['confidence'] = inference['confidence']
 
@@ -332,6 +332,10 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                 variant_record[f'{cross}_hom_ref'] = genotype_counts['0/0']
                 # ... other cross-specific fields ...
                 
+            # After the cross loop, transfer all parental alleles to variant_record
+            for parent, allele in parental_alleles.items():
+                variant_record[f"{parent}_allele"] = allele
+
             # After the cross loop, store total counts
             variant_record[f'hom_ref_count'] = total_genotype_counts['0/0']
             variant_record[f'het_count'] = total_genotype_counts['0/1']
