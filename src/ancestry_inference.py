@@ -270,6 +270,7 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                 genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
                 quality_data = {'0/0': [], '0/1': [], '1/1': []}
 
+                # Add to the genotype extraction section
                 for sample in samples:
                     if sample in roi_variants.columns:
                         # Get genotype and quality metrics
@@ -278,35 +279,34 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                         if gt != './.':
                             quality_data[gt].append((1, depth, qual))  # Count, depth, qual
 
-                # Add this debug code right after extracting genotype counts for a variant
-                if all(count == 0 for gt, count in genotype_counts.items() if gt != './.'):
-                    print(f"WARNING: Zero non-missing genotypes at {variant['CHROM']}:{variant['POS']}")
-                    print(f"Samples available: {[s for s in samples if s in roi_variants.columns]}")
-                    print(f"First few sample values: {[variant[s] for s in samples[:3] if s in roi_variants.columns]}")
+                # After collecting all genotype counts
+                total_samples = sum(genotype_counts.values())
+                missing_samples = genotype_counts['./.']
+                missing_ratio = missing_samples / total_samples if total_samples > 0 else 1.0
 
-                # Average quality metrics per genotype
-                avg_quality = {}
-                for gt, data in quality_data.items():
-                    if data:
-                        total_count = sum(d[0] for d in data)
-                        avg_depth = sum(d[0] * d[1] for d in data) / total_count
-                        avg_qual = sum(d[0] * d[2] for d in data) / total_count
-                        avg_quality[gt] = (genotype_counts[gt], avg_depth, avg_qual)
+                # Skip likelihood calculation if too much data is missing
+                if missing_ratio > 0.8:  # You can adjust this threshold
+                    print(f"Skipping variant at {variant['CHROM']}:{variant['POS']} for cross {cross}: {missing_ratio:.2f} missing data")
+                    variant_record[f"{common_parent}_allele"] = "N"  # Indicate insufficient data
+                    variant_record[f"{alt_parent}_allele"] = "N"
+                    variant_record['likelihood'] = float('nan')
+                    variant_record['confidence'] = 0
+                else:
+                    # Only calculate inference if we have enough data
+                    inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
+                    
+                    # Store results
+                    variant_record[f"{common_parent}_allele"] = inference['p1_allele']
+                    variant_record[f"{alt_parent}_allele"] = inference['p2_allele']
+                    variant_record['likelihood'] = inference['log_likelihood']
+                    variant_record['confidence'] = inference['confidence']
 
-                # Use quality-aware likelihood calculation
-                inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
-                
-                # Store results
-                variant_record[f"{common_parent}_allele"] = inference['p1_allele']
-                variant_record[f"{alt_parent}_allele"] = inference['p2_allele']
-                variant_record['likelihood'] = inference['log_likelihood']
-                variant_record['confidence'] = inference['confidence']
-                
-                # Store genotype counts for reference
+                # Always store genotype counts for reference
                 variant_record[f'hom_ref_count'] = genotype_counts['0/0']
                 variant_record[f'het_count'] = genotype_counts['0/1']
                 variant_record[f'hom_alt_count'] = genotype_counts['1/1']
                 variant_record[f'missing_count'] = genotype_counts['./.']
+                variant_record[f'missing_ratio'] = missing_ratio
                 
             results.append(variant_record)
         
