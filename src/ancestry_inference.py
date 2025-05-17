@@ -256,12 +256,117 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
             print(f"No variants found in ROI {roi_name}")
             continue
         
-        # Process each variant individually
-        results = []
+        # Before processing variants, identify all common parents across crosses
+        all_parents = set()
+        common_parents = set()
+        for cross in f2_groups.keys():
+            parents = cross.split('_')
+            for p in parents:
+                if p in all_parents:
+                    common_parents.add(p)
+                all_parents.add(p)
+
+        # For each variant
         for idx, variant in roi_variants.iterrows():
             variant_record = {'CHROM': variant['CHROM'], 'POS': variant['POS'],
                             'REF': variant['REF'], 'ALT': variant['ALT']}
             
+            # Create dictionary to store cross-specific data
+            cross_data = {}
+            
+            # Store cross-specific allele predictions temporarily
+            cross_predictions = {}
+            
+            # Store confidence values for later weighted averaging
+            parent_confidences = {p: [] for p in all_parents}
+            parent_alleles = {p: [] for p in all_parents}
+            
+            # Process each cross separately first
+            for cross, samples in f2_groups.items():
+                common_parent, alt_parent = cross.split('_')
+                
+                # Extract genotypes for this variant
+                genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
+                quality_data = {'0/0': [], '0/1': [], '1/1': []}
+
+                # Add to the genotype extraction section
+                for sample in samples:
+                    if sample in roi_variants.columns:
+                        # Get genotype and quality metrics
+                        gt, depth, qual = extract_genotype(variant[sample], return_quality=True)
+                        genotype_counts[gt] += 1
+                        if gt != './.':
+                            quality_data[gt].append((1, depth, qual))  # Count, depth, qual
+
+                # After collecting all genotype counts
+                total_samples = sum(genotype_counts.values())
+                missing_samples = genotype_counts['./.']
+                missing_ratio = missing_samples / total_samples if total_samples > 0 else 1.0
+
+                # Skip likelihood calculation if too much data is missing
+                if missing_ratio > 0.95:  # You can adjust this threshold
+                    print(f"Skipping variant at {variant['CHROM']}:{variant['POS']} for cross {cross}: {missing_ratio:.2f} missing data")
+                    cross_predictions[cross] = {common_parent: "N", alt_parent: "N"}
+                    cross_data[cross] = {"confidence": 0, "missing_ratio": missing_ratio}
+                else:
+                    # Calculate average quality metrics for each genotype
+                    avg_quality = {}
+                    for gt, data in quality_data.items():
+                        if data:  # Only if we have data for this genotype
+                            # Calculate averages from collected (count, depth, qual) tuples
+                            total_depth = sum(d for _, d, _ in data)
+                            total_qual = sum(q for _, _, q in data)
+                            count = len(data)
+                            avg_quality[gt] = (count, total_depth/count if count > 0 else 0, total_qual/count if count > 0 else 0)
+                    
+                    # Only calculate inference if we have enough data
+                    inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
+                    cross_predictions[cross] = {
+                        common_parent: inference['p1_allele'], 
+                        alt_parent: inference['p2_allele']
+                    }
+                    cross_data[cross] = {
+                        "confidence": inference['confidence'],
+                        "likelihood": inference['log_likelihood']
+                    }
+                    
+                    # Record predictions with their confidence for each parent
+                    parent_confidences[common_parent].append((inference['p1_allele'], inference['confidence']))
+                    parent_confidences[alt_parent].append((inference['p2_allele'], inference['confidence']))
+                    parent_alleles[common_parent].append(inference['p1_allele'])
+                    parent_alleles[alt_parent].append(inference['p2_allele'])
+            
+            # Reconcile predictions for common parents (like 664c)
+            final_alleles = {}
+            for parent in all_parents:
+                if parent in common_parents:
+                    # For common parents, use confidence-weighted consensus
+                    if not parent_confidences[parent]:
+                        final_alleles[parent] = "N"
+                    else:
+                        # Use most confident prediction that isn't "N"
+                        valid_predictions = [(allele, conf) for allele, conf in parent_confidences[parent] if allele != "N"]
+                        if valid_predictions:
+                            final_alleles[parent] = max(valid_predictions, key=lambda x: x[1])[0]
+                        else:
+                            final_alleles[parent] = "N"
+                else:
+                    # For unique parents, use their single prediction
+                    if not parent_confidences[parent]:
+                        final_alleles[parent] = "N" 
+                    else:
+                        # Use most confident prediction
+                        final_alleles[parent] = max(parent_confidences[parent], key=lambda x: x[1])[0]
+            
+            # Store final reconciled alleles
+            for parent, allele in final_alleles.items():
+                variant_record[f"{parent}_allele"] = allele
+                
+            # Store cross-specific data
+            for cross, data in cross_data.items():
+                for key, value in data.items():
+                    variant_record[f"{cross}_{key}"] = value
+
             # Before the cross loop, add cumulative counters
             total_genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
             total_samples_checked = 0
