@@ -88,7 +88,7 @@ def main():
     inference_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
     inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved. This will allow to retrieve the identity of the alleles present in the original parental lines.') 
     inference_parser.add_argument('--output', type=str, required = True, help="Ouptput name. This is a file with the variant information and the inferred allele from each parental line. So, instead of having the actual samples, we will see the alleles for each parental. Also, the likelihood of the allele will be reported if specified.")
-    inference_parser.add_argument('--likelihood', action='store_true', help='If specified, the likelihood of the allele will be reported. This is a measure of how likely the allele is to be present in the sample. The higher the likelihood, the more likely the allele is to be present in the sample.')
+    inference_parser.add_argument('--context', type=int, default=20, help='How many variants to consider in the contextual analysis.')
 
     # Searching for diagnostic markers
 
@@ -119,7 +119,7 @@ def main():
     elif args.command == 'Mask':
         mask_variants(args.vcf, args.gff3, args.ROI_list, args.output)
     elif args.command == 'Infer':
-        infer_ancestry(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.likelihood)
+        infer_ancestry(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.context)
     elif args.command == 'Screen':
         screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_qual, args.min_dp,
                         args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
