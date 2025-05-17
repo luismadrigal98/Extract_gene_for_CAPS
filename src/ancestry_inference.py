@@ -262,7 +262,10 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
             variant_record = {'CHROM': variant['CHROM'], 'POS': variant['POS'],
                             'REF': variant['REF'], 'ALT': variant['ALT']}
             
-            # For each cross (e.g., 664c_767c)
+            # Before the cross loop, add cumulative counters
+            total_genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
+            total_samples_checked = 0
+
             for cross, samples in f2_groups.items():
                 common_parent, alt_parent = cross.split('_')
                 
@@ -317,6 +320,24 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                 variant_record[f'hom_alt_count'] = genotype_counts['1/1']
                 variant_record[f'missing_count'] = genotype_counts['./.']
                 variant_record[f'missing_ratio'] = missing_ratio
+
+                # Update total counts
+                total_genotype_counts['0/0'] += genotype_counts['0/0']
+                total_genotype_counts['0/1'] += genotype_counts['0/1']
+                total_genotype_counts['1/1'] += genotype_counts['1/1'] 
+                total_genotype_counts['./.'] += genotype_counts['./.']
+                total_samples_checked += sum(genotype_counts.values())
+                
+                # Store per-cross counts if needed
+                variant_record[f'{cross}_hom_ref'] = genotype_counts['0/0']
+                # ... other cross-specific fields ...
+                
+            # After the cross loop, store total counts
+            variant_record[f'hom_ref_count'] = total_genotype_counts['0/0']
+            variant_record[f'het_count'] = total_genotype_counts['0/1']
+            variant_record[f'hom_alt_count'] = total_genotype_counts['1/1']
+            variant_record[f'missing_count'] = total_genotype_counts['./.']
+            variant_record[f'missing_ratio'] = total_genotype_counts['./.'] / total_samples_checked if total_samples_checked > 0 else 1.0
                 
             results.append(variant_record)
         
