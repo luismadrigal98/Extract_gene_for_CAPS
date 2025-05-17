@@ -292,6 +292,16 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
                     variant_record['likelihood'] = float('nan')
                     variant_record['confidence'] = 0
                 else:
+                    # Calculate average quality metrics for each genotype
+                    avg_quality = {}
+                    for gt, data in quality_data.items():
+                        if data:  # Only if we have data for this genotype
+                            # Calculate averages from collected (count, depth, qual) tuples
+                            total_depth = sum(d for _, d, _ in data)
+                            total_qual = sum(q for _, _, q in data)
+                            count = len(data)
+                            avg_quality[gt] = (count, total_depth/count if count > 0 else 0, total_qual/count if count > 0 else 0)
+                    
                     # Only calculate inference if we have enough data
                     inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
                     
