@@ -156,7 +156,7 @@ def mask_variants(vcf, gff3, roi_list, output):
             with open(output, 'w') as f:
                 # Write metadata headers
                 for header in vcf_df.attrs['headers']:
-                    f.write(header)
+                    f.write(header + '\n')  # Add newline after each header
                 # Write column header and data
                 f.write(vcf_df.attrs['column_header'])
                 final_df.to_csv(f, sep='\t', index=False, header=False)

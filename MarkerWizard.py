@@ -77,6 +77,17 @@ def main():
     masking_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
     masking_parser.add_argument('--output', type=str, required=True, help='Output file for the screened variants. This is a vcf file with the variants that are in the ROI list and are in genic regions.')
 
+    # Determine ancestry from the F2 data
+    # Given that those F2 are the closest ones to the actual plants employed in the experiment, we are going to try to infer the alleles from each of the parental lines.
+    # The ROI are the ones that expand 664 inversions, so, there is not recombination in the F1, and in consequence, F2 can be either homozygous or heterozygous,
+    # but no recombination should be evinced (signal of each allele origin should be clear then).
+
+    inference_parser = subparsers.add_parser('Infer', help='Infer the ancestry of the F2 data')
+    inference_parser.add_argument('--vcf', type=str, required=True, help='Input VCF file')
+    inference_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
+    inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved. This will allow to retrieve the identity of the alleles present in the original parental lines.') 
+    inference_parser.add_argument('')
+
     # Searching for diagnostic markers
 
     screen_parser = subparsers.add_parser('Screen', help='Screen the variants for diagnostic markers')
