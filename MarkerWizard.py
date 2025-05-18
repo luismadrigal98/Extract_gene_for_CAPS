@@ -104,7 +104,6 @@ def main():
 
     screen_parser_filtering = screen_parser.add_argument_group("Filtering by conditions to meet. High level filtering before starting the application of the rules to detect diagnostic markers.")
 
-    screen_parser_filtering.add_argument('--min_qual', type=float, required=False, help='Minimum quality score for the variants to be considered. Default is 20.', default=20)
     screen_parser_filtering.add_argument('--min_dp', type=int, required=False, help='Minimum depth of coverage for the variants to be considered. Default is 5.', default=10) # Remember, you are working with shallow sequencing data, so the depth of coverage is going to be low. The default is 5, but you can change it to 10 if you want.
 
     screen_parser_rules = screen_parser.add_argument_group("Rules to detect diagnostic markers. These rules are going to be applied to the filtered variants.")
@@ -123,7 +122,7 @@ def main():
     elif args.command == 'Infer':
         infer_ancestry(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.context)
     elif args.command == 'Screen':
-        screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_qual, args.min_dp,
+        screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_dp,
                         args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
     else:
         parser.print_help()
