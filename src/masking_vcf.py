@@ -67,7 +67,7 @@ def read_vcf(path):
         logger.error(f"Error reading VCF file: {e}", exc_info=True)
         raise
 
-def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True):
+def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True, min_quality=0):
     """
     Mask the variants in the VCF file based on the GFF3 file and ROI list.
     
@@ -77,6 +77,7 @@ def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True):
     roi_list (str): Path to the ROI list file.
     output (str): Path to the output VCF file.
     only_biallelic (bool): If True, only biallelic variants will be preserved.
+    min_quality (int): Minimum quality score for variants to be included.
     
     Returns:
     None
@@ -87,6 +88,12 @@ def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True):
         # Read the VCF file
         vcf_df = read_vcf(vcf)
         initial_variant_count = len(vcf_df)
+
+        # Filter the VCF variants based on quality
+        if min_quality > 0:
+            logger.info(f"Filtering variants with quality score >= {min_quality}")
+            vcf_df = vcf_df[vcf_df['QUAL'] >= min_quality]
+            logger.info(f"Filtered to {len(vcf_df)} variants with quality score >= {min_quality}")
         
         # Read the GFF3 file
         logger.info(f"Reading GFF3 file: {gff3}")
