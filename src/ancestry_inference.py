@@ -526,7 +526,7 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
 
 def infer_ancestry_single(vcf, ROI_list, ancestry_log, output):
     """
-    Infer parental alleles for single F2 individuals.
+    Infer parental alleles for single F2 individuals with reliability indicators.
     
     Args:
         vcf: Path to VCF file
@@ -566,11 +566,85 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output):
         if len(roi_variants) == 0:
             logging.info(f"No variants found in ROI {roi_name}")
             continue
+            
+        # STEP 1: Calculate region-wide patterns for each F2 (for context)
+        f2_regional_patterns = {}
         
-        # Create DataFrame to store results
+        for sample_id in f2_samples:
+            if sample_id not in roi_variants.columns:
+                continue
+                
+            # Count genotypes across the region
+            genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
+            depth_data = {'0/0': [], '0/1': [], '1/1': []}
+            
+            for _, variant in roi_variants.iterrows():
+                if sample_id in variant:
+                    gt, depth, _ = extract_genotype(variant[sample_id], return_quality=True)
+                    genotype_counts[gt] += 1
+                    if gt != './.':
+                        depth_data[gt].append(depth)
+            
+            # Calculate zygosity ratios and average depths
+            total = sum([genotype_counts['0/0'], genotype_counts['0/1'], genotype_counts['1/1']])
+            if total > 0:
+                # Get ratios
+                hom_ref_ratio = genotype_counts['0/0'] / total
+                het_ratio = genotype_counts['0/1'] / total
+                hom_alt_ratio = genotype_counts['1/1'] / total
+                
+                # Get average depths
+                avg_depths = {}
+                for gt in depth_data:
+                    if depth_data[gt]:
+                        avg_depths[gt] = sum(depth_data[gt]) / len(depth_data[gt])
+                    else:
+                        avg_depths[gt] = 0
+                
+                # Determine predominant pattern
+                if max(hom_ref_ratio, het_ratio, hom_alt_ratio) < 0.6:
+                    pattern = "mixed"
+                elif hom_ref_ratio > het_ratio and hom_ref_ratio > hom_alt_ratio:
+                    pattern = "homozygous_ref"
+                elif het_ratio > hom_ref_ratio and het_ratio > hom_alt_ratio:
+                    pattern = "heterozygous"
+                else:
+                    pattern = "homozygous_alt"
+                
+                # Store pattern info
+                f2_regional_patterns[sample_id] = {
+                    'pattern': pattern,
+                    'hom_ref_ratio': hom_ref_ratio,
+                    'het_ratio': het_ratio,
+                    'hom_alt_ratio': hom_alt_ratio,
+                    'avg_depths': avg_depths
+                }
+                
+                logging.info(f"Sample {sample_id} shows {pattern} pattern across region "
+                             f"(ref:{hom_ref_ratio:.2f} het:{het_ratio:.2f} alt:{hom_alt_ratio:.2f})")
+            else:
+                f2_regional_patterns[sample_id] = {'pattern': 'unknown'}
+        
+        # Track which parents are common across families
+        common_parents = {}
+        alt_parents = {}
+        
+        # Identify common parents and alternative parents
+        for sample_id, (common, alt) in f2_samples.items():
+            if common in common_parents:
+                common_parents[common].append(sample_id)
+            else:
+                common_parents[common] = [sample_id]
+                
+            if alt in alt_parents:
+                alt_parents[alt].append(sample_id)
+            else:
+                alt_parents[alt] = [sample_id]
+        
+        # Create list to store results
         results = []
         
-        # Process each variant position
+        # STEP 2: Process each variant position
         for _, variant in tqdm(roi_variants.iterrows(), desc=f"Processing variants in {roi_name}"):
             variant_record = {
                 'CHROM': variant['CHROM'],
@@ -579,142 +653,358 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output):
                 'ALT': variant['ALT']
             }
             
-            # Store evidence from each F2 sample
-            sample_evidence = {}
-            
-            # Process each F2 sample
-            for sample_id, (common_parent, alt_parent) in f2_samples.items():
-                if sample_id not in roi_variants.columns:
-                    continue
+            # Store raw F2 genotypes for reference
+            raw_f2_data = {}
+            for sample_id in f2_samples:
+                if sample_id in variant:
+                    gt, depth, _ = extract_genotype(variant[sample_id], return_quality=True)
+                    # Store original genotype and depth
+                    raw_f2_data[f"{sample_id}_genotype"] = gt
+                    raw_f2_data[f"{sample_id}_depth"] = depth
                     
-                # Get F2 and parental genotypes
-                f2_gt = extract_genotype(variant[sample_id])
-                common_gt = extract_genotype(variant[common_parent]) if common_parent in roi_variants.columns else './.'
-                alt_gt = extract_genotype(variant[alt_parent]) if alt_parent in roi_variants.columns else './.'
-                
-                # Skip if F2 genotype is missing
-                if f2_gt == './.':
-                    continue
-                
-                # Initialize evidence record
-                evidence = {
-                    'common_allele': None,
-                    'alt_allele': None,
-                    'confidence': 0.0,
-                    'support_type': 'None'
-                }
-                
-                # Infer parental alleles based on F2 genotype
-                if f2_gt == '0/0':  # F2 is homozygous reference
-                    if common_gt == '0/0' and alt_gt == '0/0':
-                        # Both parents are reference - strong evidence
-                        evidence['common_allele'] = '0'
-                        evidence['alt_allele'] = '0'
-                        evidence['confidence'] = 0.9
-                        evidence['support_type'] = 'Assembly/Complete'
-                    elif common_gt == '0/0' and alt_gt == './.':
-                        # Only common parent genotyped - moderate evidence
-                        evidence['common_allele'] = '0'
-                        evidence['alt_allele'] = '0'  # Inferred
-                        evidence['confidence'] = 0.7
-                        evidence['support_type'] = 'Assembly/Partial'
-                    elif common_gt == './.' and alt_gt == '0/0':
-                        # Only alt parent genotyped - moderate evidence
-                        evidence['common_allele'] = '0'  # Inferred
-                        evidence['alt_allele'] = '0'
-                        evidence['confidence'] = 0.7
-                        evidence['support_type'] = 'Assembly/Partial'
-                    else:
-                        # F2 doesn't match parental genotypes - weak inference
-                        evidence['common_allele'] = '0'
-                        evidence['alt_allele'] = '0'
-                        evidence['confidence'] = 0.5
-                        evidence['support_type'] = 'F2_evidence'
-                
-                elif f2_gt == '0/1':  # F2 is heterozygous
-                    # In an inversion, heterozygous F2s typically have one allele from each parent
-                    evidence['common_allele'] = '0'
-                    evidence['alt_allele'] = '1'
-                    evidence['confidence'] = 0.8
-                    evidence['support_type'] = 'F2_segregation'
-                    
-                    # Check if assemblies support this
-                    if common_gt == '0/0' and alt_gt == '1/1':
-                        evidence['confidence'] = 0.95
-                        evidence['support_type'] = 'Assembly/Complete'
-                
-                elif f2_gt == '1/1':  # F2 is homozygous alternate
-                    if common_gt == '1/1' and alt_gt == '1/1':
-                        # Both parents are alternate - strong evidence
-                        evidence['common_allele'] = '1'
-                        evidence['alt_allele'] = '1'
-                        evidence['confidence'] = 0.9
-                        evidence['support_type'] = 'Assembly/Complete'
-                    elif common_gt == '1/1' and alt_gt == './.':
-                        # Only common parent genotyped - moderate evidence
-                        evidence['common_allele'] = '1'
-                        evidence['alt_allele'] = '1'  # Inferred
-                        evidence['confidence'] = 0.7
-                        evidence['support_type'] = 'Assembly/Partial'
-                    elif common_gt == './.' and alt_gt == '1/1':
-                        # Only alt parent genotyped - moderate evidence
-                        evidence['common_allele'] = '1'  # Inferred
-                        evidence['alt_allele'] = '1'
-                        evidence['confidence'] = 0.7
-                        evidence['support_type'] = 'Assembly/Partial'
-                    else:
-                        # F2 doesn't match parental genotypes - weak inference
-                        evidence['common_allele'] = '1'
-                        evidence['alt_allele'] = '1'
-                        evidence['confidence'] = 0.5
-                        evidence['support_type'] = 'F2_evidence'
-                
-                # Store evidence from this sample
-                if evidence['common_allele'] is not None:
-                    key = f"{sample_id}_{common_parent}_{alt_parent}"
-                    sample_evidence[key] = evidence
+                    # Store allelic depths if available
+                    if ':' in variant[sample_id]:
+                        fields = variant[sample_id].split(':')
+                        if len(fields) >= 3 and ',' in fields[2]:
+                            try:
+                                allelic_depths = [int(d) for d in fields[2].split(',')]
+                                if len(allelic_depths) >= 2:
+                                    raw_f2_data[f"{sample_id}_ref_depth"] = allelic_depths[0]
+                                    raw_f2_data[f"{sample_id}_alt_depth"] = allelic_depths[1]
+                                    
+                                    # Flag potential issues with heterozygous calls
+                                    if gt == '0/1':
+                                        if depth <= 2:
+                                            raw_f2_data[f"{sample_id}_quality"] = "very_low_depth"
+                                        elif allelic_depths[0] > 3*allelic_depths[1]:
+                                            raw_f2_data[f"{sample_id}_quality"] = "skewed_ref"
+                                        elif allelic_depths[1] > 3*allelic_depths[0]:
+                                            raw_f2_data[f"{sample_id}_quality"] = "skewed_alt"
+                                        else:
+                                            raw_f2_data[f"{sample_id}_quality"] = "balanced"
+                                    else:
+                                        if depth <= 2:
+                                            raw_f2_data[f"{sample_id}_quality"] = "low_depth"
+                                        else:
+                                            raw_f2_data[f"{sample_id}_quality"] = "good"
+                            except ValueError:
+                                raw_f2_data[f"{sample_id}_quality"] = "unknown"
             
-            # Combine evidence across samples for this variant
-            if sample_evidence:
-                # Get weighted consensus for common parent
-                common_votes = {'0': 0.0, '1': 0.0}
-                alt_votes = {'0': 0.0, '1': 0.0}
+            # Process common parents - these need consensus across families
+            for common_parent, samples in common_parents.items():
+                evidence_for_parent = []
+                raw_evidence = []
                 
-                for evidence in sample_evidence.values():
-                    if evidence['common_allele'] in common_votes:
-                        common_votes[evidence['common_allele']] += evidence['confidence']
-                    if evidence['alt_allele'] in alt_votes:
-                        alt_votes[evidence['alt_allele']] += evidence['confidence']
+                for sample_id in samples:
+                    if sample_id not in roi_variants.columns:
+                        continue
+                    
+                    # Get sample family information
+                    common_p, alt_p = f2_samples[sample_id]
+                    
+                    # Skip if this sample doesn't involve this common parent
+                    if common_p != common_parent:
+                        continue
+                    
+                    # Extract genotype and quality metrics
+                    f2_gt, f2_depth, f2_qual = extract_genotype(variant[sample_id], return_quality=True)
+                    
+                    # Skip if F2 genotype is missing
+                    if f2_gt == './.':
+                        continue
+                    
+                    # Get regional pattern
+                    region_pattern = f2_regional_patterns.get(sample_id, {}).get('pattern', 'unknown')
+                    
+                    # Calculate confidence level based on depth and consistency with regional pattern
+                    confidence_level = "high"
+                    if f2_depth == 1:
+                        confidence_level = "very_low"
+                    elif f2_depth == 2:
+                        confidence_level = "low"
+                    elif f2_depth <= 4:
+                        confidence_level = "medium"
+                        
+                    # Check allelic depths for heterozygous calls
+                    allelic_imbalance = False
+                    if f2_gt == '0/1' and ':' in variant[sample_id]:
+                        fields = variant[sample_id].split(':')
+                        if len(fields) >= 3 and ',' in fields[2]:
+                            try:
+                                allelic_depths = [int(d) for d in fields[2].split(',')]
+                                if len(allelic_depths) >= 2:
+                                    if allelic_depths[0] > 3*allelic_depths[1] or allelic_depths[1] > 3*allelic_depths[0]:
+                                        allelic_imbalance = True
+                                        if confidence_level != "very_low":
+                                            confidence_level = "low"  # Downgrade confidence for imbalanced het calls
+                            except ValueError:
+                                pass
+                    
+                    # Check regional consistency
+                    if region_pattern != 'unknown' and region_pattern != 'mixed':
+                        if (region_pattern == 'homozygous_ref' and f2_gt != '0/0') or \
+                           (region_pattern == 'homozygous_alt' and f2_gt != '1/1') or \
+                           (region_pattern == 'heterozygous' and f2_gt != '0/1'):
+                            # Call conflicts with regional pattern
+                            if confidence_level not in ["very_low", "low"]:
+                                confidence_level = "low"  # Downgrade confidence for pattern conflicts
+                    
+                    # Store raw evidence
+                    raw_evidence.append({
+                        'sample': sample_id,
+                        'genotype': f2_gt, 
+                        'depth': f2_depth,
+                        'allelic_imbalance': allelic_imbalance,
+                        'confidence': confidence_level,
+                        'region_pattern': region_pattern
+                    })
+                    
+                    # Calculate confidence weight (0.1-1.0)
+                    confidence_weight = {
+                        "very_low": 0.1,
+                        "low": 0.3,
+                        "medium": 0.7,
+                        "high": 1.0
+                    }[confidence_level]
+                    
+                    # Infer parental allele from F2 genotype with weighted confidence
+                    if f2_gt == '0/0':
+                        evidence_for_parent.append(('0', 0.8 * confidence_weight))
+                    
+                    elif f2_gt == '0/1':
+                        evidence_for_parent.append(('0', 0.7 * confidence_weight))
+                    
+                    elif f2_gt == '1/1':
+                        evidence_for_parent.append(('1', 0.8 * confidence_weight))
                 
-                # Determine final alleles
-                common_allele = max(common_votes, key=common_votes.get) if sum(common_votes.values()) > 0 else 'N'
-                alt_allele = max(alt_votes, key=alt_votes.get) if sum(alt_votes.values()) > 0 else 'N'
-                confidence = max(sum(common_votes.values()), sum(alt_votes.values())) / len(sample_evidence)
+                # Determine consensus for this common parent
+                variant_record[f"{common_parent}_evidence"] = str(raw_evidence)
                 
-                # Store in variant record
-                for parent_id in set([p for s, (p, _) in f2_samples.items()] + [p for s, (_, p) in f2_samples.items()]):
-                    if parent_id in [p for s, (p, _) in f2_samples.items()]:
-                        # This is a common parent
-                        variant_record[f"{parent_id}_allele"] = common_allele
+                if evidence_for_parent:
+                    # Count weighted votes for each allele
+                    allele_votes = {'0': 0.0, '1': 0.0}
+                    for allele, confidence in evidence_for_parent:
+                        allele_votes[allele] += confidence
+                    
+                    # Choose the allele with the most votes
+                    common_parent_allele = max(allele_votes, key=allele_votes.get)
+                    common_parent_confidence = max(allele_votes.values()) / sum(allele_votes.values())
+                    variant_record[f"{common_parent}_allele"] = common_parent_allele
+                    variant_record[f"{common_parent}_confidence"] = round(common_parent_confidence, 2)
+                    
+                    # Add reliability flag
+                    if common_parent_confidence < 0.6:
+                        variant_record[f"{common_parent}_reliability"] = "low"
+                    elif common_parent_confidence < 0.8:
+                        variant_record[f"{common_parent}_reliability"] = "medium"
                     else:
-                        # This is an alt parent
-                        variant_record[f"{parent_id}_allele"] = alt_allele
+                        variant_record[f"{common_parent}_reliability"] = "high"
+                else:
+                    # No evidence for this parent at this position
+                    variant_record[f"{common_parent}_allele"] = 'N'
+                    variant_record[f"{common_parent}_confidence"] = 0.0
+                    variant_record[f"{common_parent}_reliability"] = "none"
+            
+            # Process alternative parents - these are handled independently
+            for alt_parent, samples in alt_parents.items():
+                evidence_for_parent = []
+                raw_evidence = []
                 
-                variant_record['confidence'] = confidence
-                variant_record['sample_count'] = len(sample_evidence)
-            else:
-                # No evidence for this variant
-                for parent_id in set([p for s, (p, _) in f2_samples.items()] + [p for s, (_, p) in f2_samples.items()]):
-                    variant_record[f"{parent_id}_allele"] = 'N'
-                variant_record['confidence'] = 0.0
-                variant_record['sample_count'] = 0
+                for sample_id in samples:
+                    if sample_id not in roi_variants.columns:
+                        continue
+                    
+                    # Get sample family information
+                    common_p, alt_p = f2_samples[sample_id]
+                    
+                    # Skip if this sample doesn't involve this alternative parent
+                    if alt_p != alt_parent:
+                        continue
+                    
+                    # Extract genotype and quality metrics
+                    f2_gt, f2_depth, f2_qual = extract_genotype(variant[sample_id], return_quality=True)
+                    
+                    # Skip if F2 genotype is missing
+                    if f2_gt == './.':
+                        continue
+                    
+                    # Get regional pattern
+                    region_pattern = f2_regional_patterns.get(sample_id, {}).get('pattern', 'unknown')
+                    
+                    # Calculate confidence level based on depth and consistency
+                    confidence_level = "high"
+                    if f2_depth == 1:
+                        confidence_level = "very_low"
+                    elif f2_depth == 2:
+                        confidence_level = "low"
+                    elif f2_depth <= 4:
+                        confidence_level = "medium"
+                        
+                    # Check allelic depths for heterozygous calls
+                    allelic_imbalance = False
+                    if f2_gt == '0/1' and ':' in variant[sample_id]:
+                        fields = variant[sample_id].split(':')
+                        if len(fields) >= 3 and ',' in fields[2]:
+                            try:
+                                allelic_depths = [int(d) for d in fields[2].split(',')]
+                                if len(allelic_depths) >= 2:
+                                    if allelic_depths[0] > 3*allelic_depths[1] or allelic_depths[1] > 3*allelic_depths[0]:
+                                        allelic_imbalance = True
+                                        if confidence_level != "very_low":
+                                            confidence_level = "low"
+                            except ValueError:
+                                pass
+                    
+                    # Store raw evidence
+                    raw_evidence.append({
+                        'sample': sample_id,
+                        'genotype': f2_gt, 
+                        'depth': f2_depth,
+                        'allelic_imbalance': allelic_imbalance,
+                        'confidence': confidence_level,
+                        'region_pattern': region_pattern
+                    })
+                    
+                    # Get common parent's inferred allele for this position
+                    common_p_allele = variant_record.get(f"{common_p}_allele", 'N')
+                    
+                    # Calculate confidence weight
+                    confidence_weight = {
+                        "very_low": 0.1,
+                        "low": 0.3,
+                        "medium": 0.7,
+                        "high": 1.0
+                    }[confidence_level]
+                    
+                    # Infer alternative parent's allele based on F2 genotype and common parent's allele
+                    if f2_gt == '0/0':
+                        if common_p_allele == '0':
+                            # Both parents have reference allele
+                            evidence_for_parent.append(('0', 0.8 * confidence_weight))
+                        elif common_p_allele == '1':
+                            # Inconsistent pattern - don't add evidence
+                            pass
+                            
+                    elif f2_gt == '0/1':
+                        if common_p_allele == '0':
+                            # Common has reference, alt has alternate
+                            evidence_for_parent.append(('1', 0.7 * confidence_weight))
+                        elif common_p_allele == '1':
+                            # Common has alternate, alt has reference
+                            evidence_for_parent.append(('0', 0.7 * confidence_weight))
+                        else:
+                            # Common parent allele unknown, don't make strong inference
+                            pass
+                            
+                    elif f2_gt == '1/1':
+                        if common_p_allele == '1':
+                            # Both parents have alternate allele
+                            evidence_for_parent.append(('1', 0.8 * confidence_weight))
+                        elif common_p_allele == '0':
+                            # Inconsistent pattern - don't add evidence
+                            pass
+                
+                # Determine allele for this alternative parent
+                variant_record[f"{alt_parent}_evidence"] = str(raw_evidence)
+                
+                if evidence_for_parent:
+                    # Count weighted votes for each allele
+                    allele_votes = {'0': 0.0, '1': 0.0}
+                    for allele, confidence in evidence_for_parent:
+                        allele_votes[allele] += confidence
+                    
+                    # Choose the allele with the most votes
+                    alt_parent_allele = max(allele_votes, key=allele_votes.get)
+                    alt_parent_confidence = max(allele_votes.values()) / sum(allele_votes.values()) if sum(allele_votes.values()) > 0 else 0
+                    variant_record[f"{alt_parent}_allele"] = alt_parent_allele
+                    variant_record[f"{alt_parent}_confidence"] = round(alt_parent_confidence, 2)
+                    
+                    # Add reliability flag
+                    if alt_parent_confidence < 0.6:
+                        variant_record[f"{alt_parent}_reliability"] = "low"
+                    elif alt_parent_confidence < 0.8:
+                        variant_record[f"{alt_parent}_reliability"] = "medium"
+                    else:
+                        variant_record[f"{alt_parent}_reliability"] = "high"
+                else:
+                    # No evidence for this parent at this position
+                    variant_record[f"{alt_parent}_allele"] = 'N'
+                    variant_record[f"{alt_parent}_confidence"] = 0.0
+                    variant_record[f"{alt_parent}_reliability"] = "none"
+            
+            # Store raw F2 data for reference
+            variant_record.update(raw_f2_data)
+            
+            # Calculate overall metrics for this variant
+            allele_counts = sum(1 for k, v in variant_record.items() 
+                                if k.endswith('_allele') and v != 'N')
+            variant_record['allele_count'] = allele_counts
             
             results.append(variant_record)
         
-        # Save results for this ROI
-        if results:
+        # STEP 3: After processing all variants, add contextual validation
+        results_with_context = []
+        
+        for i, result in enumerate(results):
+            # Define context window (surrounding variants)
+            window_size = 20
+            start_idx = max(0, i - window_size//2)
+            end_idx = min(len(results) - 1, i + window_size//2)
+            context_variants = results[start_idx:end_idx+1]
+            
+            # Skip current variant
+            context_variants = [v for v in context_variants if v['POS'] != result['POS']]
+            
+            # Check for agreement with surrounding context for each parent
+            for parent in list(common_parents.keys()) + list(alt_parents.keys()):
+                if f"{parent}_allele" in result and result[f"{parent}_allele"] != 'N':
+                    parent_allele = result[f"{parent}_allele"]
+                    
+                    # Count matching context variants
+                    matches = 0
+                    total = 0
+                    
+                    for variant in context_variants:
+                        if f"{parent}_allele" in variant and variant[f"{parent}_allele"] != 'N':
+                            total += 1
+                            if variant[f"{parent}_allele"] == parent_allele:
+                                matches += 1
+                    
+                    if total >= 3:  # Only consider if we have enough context
+                        result[f"{parent}_context_agreement"] = round(matches/total, 2)
+                        
+                        # Flag discordant variants
+                        if matches/total < 0.3:
+                            result[f"{parent}_context_conflict"] = True
+            
+            results_with_context.append(result)
+        
+        # Save complete results with all information
+        if results_with_context:
             output_file = f"{output}_{roi_name}.tsv"
-            pd.DataFrame(results).to_csv(output_file, sep='\t', index=False)
-            logging.info(f"Saved results for ROI {roi_name} to {output_file}")
+            pd.DataFrame(results_with_context).to_csv(output_file, sep='\t', index=False)
+            logging.info(f"Saved complete results for ROI {roi_name} to {output_file}")
+            
+            # Create simplified results file (just key information)
+            simplified_results = []
+            for result in results_with_context:
+                simplified_result = {
+                    'CHROM': result['CHROM'],
+                    'POS': result['POS'],
+                    'REF': result['REF'],
+                    'ALT': result['ALT'],
+                }
+                
+                # Add all parental allele information
+                for col in result.keys():
+                    if col.endswith('_allele') or col.endswith('_reliability') or \
+                       col.endswith('_context_agreement') or col.endswith('_confidence'):
+                        simplified_result[col] = result[col]
+                
+                simplified_results.append(simplified_result)
+            
+            simplified_output = f"{output}_simplified_{roi_name}.tsv"
+            pd.DataFrame(simplified_results).to_csv(simplified_output, sep='\t', index=False)
+            logging.info(f"Saved simplified results for ROI {roi_name} to {simplified_output}")
         else:
             logging.info(f"No results for ROI {roi_name}")
