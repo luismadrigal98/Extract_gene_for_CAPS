@@ -33,6 +33,7 @@ from src.remapping_variants import *
 from src.masking_vcf import *
 from src.screen_variants import *
 from src.ancestry_inference import *
+from src.primer_design import *
 
 # Set up logging
 logging.basicConfig(
@@ -112,6 +113,22 @@ def main():
     screen_parser_rules.add_argument('--non_informative_thr_F2s', type=int, required=False, help='Non informative threshold for the F2s. In other words, how many missing genotypes are we willing to accept. Default is 2.', default=2)
     screen_parser_rules.add_argument('--heterozygous_thr_support_F2s', type=int, required=False, help='Heterozygous threshold for the F2s. In other words, how many heterozygous genotypes are we willing to accept. Default is 2.', default=2)
 
+    # Primer design step based on primer3
+    design_parser = subparsers.add_parser('Design', help='Design primers for the variants')
+
+    design_parser_inout = design_parser.add_argument_group("Input and output files")
+    design_parser_inout.add_argument('--output', '-o', type=str, required=True, help='Output file for the designed primers')
+    design_parser_inout.add_argument('--error_log', '-e', type=str, required=False, help='Error log file for the designed primers')
+
+    design_parser_primer3 = design_parser.add_argument_group("Primer3 arguments")
+    design_parser_primer3.add_argument('--primer3_exe', type=str, required=False, help='Path to primer3 executable', default = '~/.conda/envs/salmon/bin/primer3_core')
+    design_parser_primer3.add_argument('--primer3_clo', type=str, required=False, help='Command Line Options for primer3', 
+                                    default = '--default_version=2 --format_output --strict_tags')
+    design_parser_primer3.add_argument('--settings_file', type=str, required=True, help='Settings file for primer3')
+
+
+    
+
     # Execute the right command
     args = parser.parse_args()
     if args.command == 'Remap':
@@ -124,6 +141,9 @@ def main():
     elif args.command == 'Screen':
         screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_dp,
                         args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
+    elif args.command == 'Design':
+        # Primer design step based on primer3
+        design_primers()
     else:
         parser.print_help()
 
