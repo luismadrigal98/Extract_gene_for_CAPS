@@ -154,7 +154,7 @@ def extract_genotype(genotype_field, return_quality=False):
     Input formats can be:
     - Simple genotype: "0/0"
     - Complex field: "1/1:90,9,0:0,3" (GT:PL:AD format)
-    - Missing data: "./."
+    - Missing data: "./." or ./.:0,0,0:0,0
     
     Args:
         genotype_field: The genotype field from VCF
@@ -212,7 +212,7 @@ def extract_genotype(genotype_field, return_quality=False):
     
     return "./." if not return_quality else ("./.", 0, 0)
 
-def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
+def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=20, approach='single', check_parentals = False):
     """
     Infer ancestry and parental alleles for genetic variants based on F2 segregation patterns.
     Process each ROI separately and calculate both individual variant and contextual group likelihoods.
@@ -514,6 +514,33 @@ def infer_ancestry(vcf, ROI_list, ancestry_log, output, context_window=20):
         # For the simplified output, maintain consistent ordering
         simplified_output = f"{output}_simplified_{roi_name}.tsv"
         simplified_cols = ['CHROM', 'POS', 'REF', 'ALT'] + [col for col in simplified_results[0].keys() 
-                                                          if col not in ['CHROM', 'POS', 'REF', 'ALT', 'confidence']] + ['confidence']
+                                                            if col not in ['CHROM', 'POS', 'REF', 'ALT', 'confidence']] + ['confidence']
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
+
+def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, check_parental_info):
+    """
+    
+    """
+
+    # 1) Read the vcf file
+    vcf_df = read_vcf(vcf)
+
+    # 2) Read the ancestry log file
+    ancestry_df = pd.read_csv(ancestry_log, header=0, sep='\t')
+
+    # 3) Read the ROI list
+
+    try:
+        roi_df = pd.read_csv(ROI_list, sep='\t')
+    except:
+        roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
+
+    # 4) Create a dictionary to store the F2 samples and their corresponding parental lines
+    f2_samples = {}
+
+    for _, row in ancestry_df.iterrows():
+        if row['FC'] == 'F2':
+            f2_samples[row['ID']] = (row['Common'], row['Alt'])
+
+    
