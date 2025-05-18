@@ -1008,3 +1008,225 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output):
             logging.info(f"Saved simplified results for ROI {roi_name} to {simplified_output}")
         else:
             logging.info(f"No results for ROI {roi_name}")
+
+def infer_ancestry_single_integrated(vcf, ROI_list, ancestry_log, assembly_vcf, output):
+    """
+    Integrated approach that prioritizes assembly evidence while still using F2 data.
+    
+    Args:
+        vcf: Path to F2 VCF file
+        ROI_list: Path to regions of interest
+        ancestry_log: Path to relationship map
+        assembly_vcf: Path to parental assembly VCF (or None if unavailable)
+        output: Base name for output files
+    """
+    # Read input files
+    vcf_df = read_vcf(vcf)
+    ancestry_df = pd.read_csv(ancestry_log, header=0, sep='\t')
+    
+    # Load assembly data if available
+    assembly_data = None
+    if assembly_vcf:
+        try:
+            assembly_data = read_vcf(assembly_vcf)
+            logging.info(f"Loaded assembly data with {len(assembly_data)} variants")
+        except:
+            logging.warning(f"Could not load assembly data from {assembly_vcf}")
+    
+    # Get relationships
+    f2_samples = {}
+    for _, row in ancestry_df.iterrows():
+        if row['FC'] == 'F2':
+            f2_samples[str(row['ID'])] = (row['Common'], row['Alt'])
+    
+    # Get parent IDs
+    all_parents = set()
+    for _, (common, alt) in f2_samples.items():
+        all_parents.add(common)
+        all_parents.add(alt)
+    
+    # Process each ROI
+    for _, roi in roi_df.iterrows():
+        roi_name = roi['ROI_name'].split('_')[0].strip()
+        chrom = roi['Chrom']
+        start = roi['Start']
+        end = roi['End']
+        
+        # Filter variants
+        roi_variants = vcf_df[(vcf_df['CHROM'] == chrom) & 
+                             (vcf_df['POS'] >= start) & 
+                             (vcf_df['POS'] <= end)]
+                             
+        # Get assembly data for this region if available
+        assembly_variants = None
+        if assembly_data is not None:
+            assembly_variants = assembly_data[
+                (assembly_data['CHROM'] == chrom) & 
+                (assembly_data['POS'] >= start) & 
+                (assembly_data['POS'] <= end)]
+            logging.info(f"Found {len(assembly_variants)} assembly variants for region {roi_name}")
+        
+        results = []
+        
+        # STEP 1: If we have assembly data, use that to establish baseline haplotypes
+        parental_haplotypes = {}
+        
+        if assembly_variants is not None and len(assembly_variants) > 0:
+            for parent in all_parents:
+                if parent in assembly_variants.columns:
+                    # Extract haplotype from assembly
+                    haplotype = []
+                    
+                    for _, variant in assembly_variants.iterrows():
+                        gt = extract_genotype(variant[parent])
+                        pos = variant['POS']
+                        
+                        if gt == '0/0':
+                            haplotype.append((pos, '0'))
+                        elif gt == '1/1':
+                            haplotype.append((pos, '1'))
+                        # Skip heterozygous calls in assemblies - they're likely errors
+                    
+                    parental_haplotypes[parent] = haplotype
+                    logging.info(f"Extracted {len(haplotype)} positions for {parent} from assembly")
+        
+        # STEP 2: Process each variant position using combined evidence
+        for _, variant in roi_variants.iterrows():
+            variant_record = {
+                'CHROM': variant['CHROM'],
+                'POS': variant['POS'],
+                'REF': variant['REF'],
+                'ALT': variant['ALT']
+            }
+            
+            # Check if we have assembly data for this position
+            assembly_evidence = {}
+            if assembly_variants is not None:
+                matching_pos = assembly_variants[assembly_variants['POS'] == variant['POS']]
+                if len(matching_pos) > 0:
+                    # Direct assembly evidence
+                    for parent in all_parents:
+                        if parent in matching_pos.columns:
+                            gt = extract_genotype(matching_pos[parent].values[0])
+                            if gt == '0/0':
+                                assembly_evidence[parent] = '0'
+                            elif gt == '1/1':
+                                assembly_evidence[parent] = '1'
+            
+            # Process each parent
+            for parent in all_parents:
+                # MULTI-TIERED EVIDENCE APPROACH:
+                
+                # 1. DIRECT ASSEMBLY EVIDENCE (highest priority)
+                if parent in assembly_evidence:
+                    variant_record[f"{parent}_allele"] = assembly_evidence[parent]
+                    variant_record[f"{parent}_source"] = "assembly_direct"
+                    variant_record[f"{parent}_confidence"] = 0.95
+                    continue
+                
+                # 2. HAPLOTYPE BLOCK EVIDENCE (high priority)
+                if parent in parental_haplotypes and len(parental_haplotypes[parent]) >= 5:
+                    # Look for consistent flanking variants
+                    pos = variant['POS']
+                    hap = parental_haplotypes[parent]
+                    
+                    # Find flanking positions
+                    left_vars = [p for p in hap if p[0] < pos]
+                    right_vars = [p for p in hap if p[0] > pos]
+                    
+                    # If we have flanking variants within 50kb
+                    if (left_vars and pos - left_vars[-1][0] < 50000) and \
+                       (right_vars and right_vars[0][0] - pos < 50000):
+                        # Check if flanking variants have same allele
+                        if left_vars[-1][1] == right_vars[0][1]:
+                            variant_record[f"{parent}_allele"] = left_vars[-1][1]
+                            variant_record[f"{parent}_source"] = "assembly_haplotype"
+                            variant_record[f"{parent}_confidence"] = 0.9
+                            continue
+                
+                # 3. F2 EVIDENCE (moderate priority)
+                # Using the existing F2-based logic for this parent
+                evidence_for_parent = []
+                
+                # Find F2s connected to this parent
+                relevant_f2s = []
+                for f2_id, (common, alt) in f2_samples.items():
+                    if common == parent or alt == parent:
+                        relevant_f2s.append((f2_id, common, alt))
+                
+                for f2_id, common, alt in relevant_f2s:
+                    if f2_id not in roi_variants.columns:
+                        continue
+                    
+                    # Extract F2 genotype and depth
+                    f2_gt, f2_depth, _ = extract_genotype(variant[f2_id], return_quality=True)
+                    if f2_gt == './.':
+                        continue
+                    
+                    # Calculate confidence level
+                    confidence_level = "high"
+                    if f2_depth == 1:
+                        confidence_level = "very_low"
+                    elif f2_depth == 2:
+                        confidence_level = "low"
+                    elif f2_depth <= 4:
+                        confidence_level = "medium"
+                    
+                    # Get confidence weight
+                    confidence_weight = {
+                        "very_low": 0.1,
+                        "low": 0.3,
+                        "medium": 0.7,
+                        "high": 1.0
+                    }[confidence_level]
+                    
+                    # Infer parent allele from F2
+                    if parent == common:  # Common parent
+                        if f2_gt == '0/0':
+                            evidence_for_parent.append(('0', 0.8 * confidence_weight))
+                        elif f2_gt == '0/1':
+                            evidence_for_parent.append(('0', 0.7 * confidence_weight))
+                        elif f2_gt == '1/1':
+                            evidence_for_parent.append(('1', 0.8 * confidence_weight))
+                    else:  # Alt parent
+                        other_parent_allele = variant_record.get(f"{common}_allele", None)
+                        
+                        if f2_gt == '0/0':
+                            if other_parent_allele == '0' or other_parent_allele is None:
+                                evidence_for_parent.append(('0', 0.8 * confidence_weight))
+                        elif f2_gt == '0/1':
+                            if other_parent_allele == '0':
+                                evidence_for_parent.append(('1', 0.7 * confidence_weight))
+                            elif other_parent_allele == '1':
+                                evidence_for_parent.append(('0', 0.7 * confidence_weight))
+                        elif f2_gt == '1/1':
+                            if other_parent_allele == '1' or other_parent_allele is None:
+                                evidence_for_parent.append(('1', 0.8 * confidence_weight))
+                
+                # Make F2-based inference
+                if evidence_for_parent:
+                    # Count weighted votes
+                    allele_votes = {'0': 0.0, '1': 0.0}
+                    for allele, confidence in evidence_for_parent:
+                        allele_votes[allele] += confidence
+                    
+                    # Choose allele with most votes
+                    parent_allele = max(allele_votes, key=allele_votes.get)
+                    parent_confidence = max(allele_votes.values()) / sum(allele_votes.values())
+                    
+                    variant_record[f"{parent}_allele"] = parent_allele
+                    variant_record[f"{parent}_source"] = "f2_inference"
+                    variant_record[f"{parent}_confidence"] = round(parent_confidence, 2)
+                else:
+                    variant_record[f"{parent}_allele"] = 'N'
+                    variant_record[f"{parent}_confidence"] = 0.0
+            
+            results.append(variant_record)
+        
+        # Add context validation
+        results_with_context = add_context_validation(results, window_size=20)
+        
+        # Save results
+        if results_with_context:
+            output_file = f"{output}_{roi_name}.tsv"
+            pd.DataFrame(results_with_context).to_csv(output_file, sep='\t', index=False)
