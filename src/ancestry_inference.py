@@ -10,6 +10,12 @@ This script is going to determine, based on the genotyping data of the F2s, the 
 import pandas as pd
 import sys
 import math
+from tqdm import tqdm
+import logging
+
+# Set up logging
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Add local directory to system path
 
@@ -518,29 +524,197 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
 
-def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, check_parental_info):
+def infer_ancestry_single(vcf, ROI_list, ancestry_log, output):
     """
+    Infer parental alleles for single F2 individuals.
     
+    Args:
+        vcf: Path to VCF file
+        ROI_list: Path to regions of interest file
+        ancestry_log: Path to relationship map file
+        output: Base name for output files
     """
-
-    # 1) Read the vcf file
+    # Read input files
     vcf_df = read_vcf(vcf)
-
-    # 2) Read the ancestry log file
     ancestry_df = pd.read_csv(ancestry_log, header=0, sep='\t')
-
-    # 3) Read the ROI list
-
+    
     try:
         roi_df = pd.read_csv(ROI_list, sep='\t')
     except:
         roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
-
-    # 4) Create a dictionary to store the F2 samples and their corresponding parental lines
+    
+    # Get F2 samples and their parents
     f2_samples = {}
-
     for _, row in ancestry_df.iterrows():
         if row['FC'] == 'F2':
-            f2_samples[row['ID']] = (row['Common'], row['Alt'])
-
+            f2_samples[str(row['ID'])] = (row['Common'], row['Alt'])
     
+    # Process each ROI
+    for _, roi in roi_df.iterrows():
+        roi_name = roi['ROI_name'].split('_')[0].strip()
+        chrom = roi['Chrom']
+        start = roi['Start']
+        end = roi['End']
+        
+        logging.info(f"Processing ROI: {roi_name} ({chrom}:{start}-{end})")
+        
+        # Filter variants in this ROI
+        roi_variants = vcf_df[(vcf_df['CHROM'] == chrom) & 
+                             (vcf_df['POS'] >= start) & 
+                             (vcf_df['POS'] <= end)].copy()
+        
+        if len(roi_variants) == 0:
+            logging.info(f"No variants found in ROI {roi_name}")
+            continue
+        
+        # Create DataFrame to store results
+        results = []
+        
+        # Process each variant position
+        for _, variant in tqdm(roi_variants.iterrows(), desc=f"Processing variants in {roi_name}"):
+            variant_record = {
+                'CHROM': variant['CHROM'],
+                'POS': variant['POS'],
+                'REF': variant['REF'],
+                'ALT': variant['ALT']
+            }
+            
+            # Store evidence from each F2 sample
+            sample_evidence = {}
+            
+            # Process each F2 sample
+            for sample_id, (common_parent, alt_parent) in f2_samples.items():
+                if sample_id not in roi_variants.columns:
+                    continue
+                    
+                # Get F2 and parental genotypes
+                f2_gt = extract_genotype(variant[sample_id])
+                common_gt = extract_genotype(variant[common_parent]) if common_parent in roi_variants.columns else './.'
+                alt_gt = extract_genotype(variant[alt_parent]) if alt_parent in roi_variants.columns else './.'
+                
+                # Skip if F2 genotype is missing
+                if f2_gt == './.':
+                    continue
+                
+                # Initialize evidence record
+                evidence = {
+                    'common_allele': None,
+                    'alt_allele': None,
+                    'confidence': 0.0,
+                    'support_type': 'None'
+                }
+                
+                # Infer parental alleles based on F2 genotype
+                if f2_gt == '0/0':  # F2 is homozygous reference
+                    if common_gt == '0/0' and alt_gt == '0/0':
+                        # Both parents are reference - strong evidence
+                        evidence['common_allele'] = '0'
+                        evidence['alt_allele'] = '0'
+                        evidence['confidence'] = 0.9
+                        evidence['support_type'] = 'Assembly/Complete'
+                    elif common_gt == '0/0' and alt_gt == './.':
+                        # Only common parent genotyped - moderate evidence
+                        evidence['common_allele'] = '0'
+                        evidence['alt_allele'] = '0'  # Inferred
+                        evidence['confidence'] = 0.7
+                        evidence['support_type'] = 'Assembly/Partial'
+                    elif common_gt == './.' and alt_gt == '0/0':
+                        # Only alt parent genotyped - moderate evidence
+                        evidence['common_allele'] = '0'  # Inferred
+                        evidence['alt_allele'] = '0'
+                        evidence['confidence'] = 0.7
+                        evidence['support_type'] = 'Assembly/Partial'
+                    else:
+                        # F2 doesn't match parental genotypes - weak inference
+                        evidence['common_allele'] = '0'
+                        evidence['alt_allele'] = '0'
+                        evidence['confidence'] = 0.5
+                        evidence['support_type'] = 'F2_evidence'
+                
+                elif f2_gt == '0/1':  # F2 is heterozygous
+                    # In an inversion, heterozygous F2s typically have one allele from each parent
+                    evidence['common_allele'] = '0'
+                    evidence['alt_allele'] = '1'
+                    evidence['confidence'] = 0.8
+                    evidence['support_type'] = 'F2_segregation'
+                    
+                    # Check if assemblies support this
+                    if common_gt == '0/0' and alt_gt == '1/1':
+                        evidence['confidence'] = 0.95
+                        evidence['support_type'] = 'Assembly/Complete'
+                
+                elif f2_gt == '1/1':  # F2 is homozygous alternate
+                    if common_gt == '1/1' and alt_gt == '1/1':
+                        # Both parents are alternate - strong evidence
+                        evidence['common_allele'] = '1'
+                        evidence['alt_allele'] = '1'
+                        evidence['confidence'] = 0.9
+                        evidence['support_type'] = 'Assembly/Complete'
+                    elif common_gt == '1/1' and alt_gt == './.':
+                        # Only common parent genotyped - moderate evidence
+                        evidence['common_allele'] = '1'
+                        evidence['alt_allele'] = '1'  # Inferred
+                        evidence['confidence'] = 0.7
+                        evidence['support_type'] = 'Assembly/Partial'
+                    elif common_gt == './.' and alt_gt == '1/1':
+                        # Only alt parent genotyped - moderate evidence
+                        evidence['common_allele'] = '1'  # Inferred
+                        evidence['alt_allele'] = '1'
+                        evidence['confidence'] = 0.7
+                        evidence['support_type'] = 'Assembly/Partial'
+                    else:
+                        # F2 doesn't match parental genotypes - weak inference
+                        evidence['common_allele'] = '1'
+                        evidence['alt_allele'] = '1'
+                        evidence['confidence'] = 0.5
+                        evidence['support_type'] = 'F2_evidence'
+                
+                # Store evidence from this sample
+                if evidence['common_allele'] is not None:
+                    key = f"{sample_id}_{common_parent}_{alt_parent}"
+                    sample_evidence[key] = evidence
+            
+            # Combine evidence across samples for this variant
+            if sample_evidence:
+                # Get weighted consensus for common parent
+                common_votes = {'0': 0.0, '1': 0.0}
+                alt_votes = {'0': 0.0, '1': 0.0}
+                
+                for evidence in sample_evidence.values():
+                    if evidence['common_allele'] in common_votes:
+                        common_votes[evidence['common_allele']] += evidence['confidence']
+                    if evidence['alt_allele'] in alt_votes:
+                        alt_votes[evidence['alt_allele']] += evidence['confidence']
+                
+                # Determine final alleles
+                common_allele = max(common_votes, key=common_votes.get) if sum(common_votes.values()) > 0 else 'N'
+                alt_allele = max(alt_votes, key=alt_votes.get) if sum(alt_votes.values()) > 0 else 'N'
+                confidence = max(sum(common_votes.values()), sum(alt_votes.values())) / len(sample_evidence)
+                
+                # Store in variant record
+                for parent_id in set([p for s, (p, _) in f2_samples.items()] + [p for s, (_, p) in f2_samples.items()]):
+                    if parent_id in [p for s, (p, _) in f2_samples.items()]:
+                        # This is a common parent
+                        variant_record[f"{parent_id}_allele"] = common_allele
+                    else:
+                        # This is an alt parent
+                        variant_record[f"{parent_id}_allele"] = alt_allele
+                
+                variant_record['confidence'] = confidence
+                variant_record['sample_count'] = len(sample_evidence)
+            else:
+                # No evidence for this variant
+                for parent_id in set([p for s, (p, _) in f2_samples.items()] + [p for s, (_, p) in f2_samples.items()]):
+                    variant_record[f"{parent_id}_allele"] = 'N'
+                variant_record['confidence'] = 0.0
+                variant_record['sample_count'] = 0
+            
+            results.append(variant_record)
+        
+        # Save results for this ROI
+        if results:
+            output_file = f"{output}_{roi_name}.tsv"
+            pd.DataFrame(results).to_csv(output_file, sep='\t', index=False)
+            logging.info(f"Saved results for ROI {roi_name} to {output_file}")
+        else:
+            logging.info(f"No results for ROI {roi_name}")

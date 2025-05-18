@@ -93,8 +93,7 @@ def main():
     inference_parser.add_argument('--output', type=str, required = True, help="Ouptput name. This is a file with the variant information and the inferred allele from each parental line. So, instead of having the actual samples, we will see the alleles for each parental. Also, the likelihood of the allele will be reported if specified.")
     inference_parser.add_argument('--context', type=int, default=20, help='How many variants to consider in the contextual analysis.')
     inference_parser.add_argument('--approach', type=str, default='single', choices=['multiple', 'single'], help='Approach to use for the ancestry inference. This refers to the whether you have multiple instances per genetic family or only one (exploratory analysis). Default is multiple.')
-    inference_parser.add_argument('--check_correspondence_with_parentals', default=True, help='If available in the vcf file, this flag will trigger the correspondence between the inferred alleles and the ones present in the assemblies of the parental lines. ONLY IMPLEMENTED FOR THE SINGLE APPROACH.')
-
+    
     # Searching for diagnostic markers  <<< Pending to be implemented
 
     screen_parser = subparsers.add_parser('Screen', help='Screen the variants for diagnostic markers')
@@ -140,7 +139,7 @@ def main():
         if args.approach == 'multiple':
             infer_ancestry_multiple(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.context)
         elif args.approach == 'single':
-            infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.check_correspondence_with_parentals)
+            infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output)
     elif args.command == 'Screen':
         screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_dp,
                         args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
