@@ -90,9 +90,11 @@ def main():
     inference_parser.add_argument('--vcf', type=str, required=True, help='Input VCF file')
     inference_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
     inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved. This will allow to retrieve the identity of the alleles present in the original parental lines.') 
-    inference_parser.add_argument('--output', type=str, required = True, help="Ouptput name. This is a file with the variant information and the inferred allele from each parental line. So, instead of having the actual samples, we will see the alleles for each parental. Also, the likelihood of the allele will be reported if specified.")
+    inference_parser.add_argument('--output', type=str, required=True, help="Ouptput name. This is a file with the variant information and the inferred allele from each parental line. So, instead of having the actual samples, we will see the alleles for each parental. Also, the likelihood of the allele will be reported if specified.")
     inference_parser.add_argument('--context', type=int, default=20, help='How many variants to consider in the contextual analysis.')
     inference_parser.add_argument('--approach', type=str, default='single', choices=['multiple', 'single'], help='Approach to use for the ancestry inference. This refers to the whether you have multiple instances per genetic family or only one (exploratory analysis). Default is multiple.')
+    inference_parser.add_argument('--use_assembly_only', action='store_true', help='Only use assembly data when available and ignore F2 data')
+    inference_parser.add_argument('--require_f2', action='store_true', default=True, help='Require F2 evidence for positions without assembly data')
     
     # Searching for diagnostic markers  <<< Pending to be implemented
 
@@ -139,7 +141,8 @@ def main():
         if args.approach == 'multiple':
             infer_ancestry_multiple(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.context)
         elif args.approach == 'single':
-            infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output)
+            infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output, 
+                                    use_assembly_only=args.use_assembly_only, require_f2=args.require_f2)
     elif args.command == 'Screen':
         screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_dp,
                         args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
