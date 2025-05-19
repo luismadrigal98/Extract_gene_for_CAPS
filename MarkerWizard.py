@@ -94,7 +94,7 @@ def main():
     inference_parser.add_argument('--context', type=int, default=20, help='How many variants to consider in the contextual analysis.')
     inference_parser.add_argument('--approach', type=str, default='single', choices=['multiple', 'single'], help='Approach to use for the ancestry inference.')
     inference_parser.add_argument('--use_assembly_when_f2_missing', action='store_true', 
-                             help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
+                            help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
     inference_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
 
     # Searching for diagnostic markers  <<< Pending to be implemented
@@ -110,6 +110,7 @@ def main():
 
     screen_parser_filters.add_argument('--allele_col_pattern', type=str, required=False, default='_allele', help='Pattern to identify the allele columns in the inferred alleles file. Default is "_allele".')
     screen_parser_filters.add_argument('--overall_reliability_to_retain', type=str, required=False, default='high', choices=['high', 'medium', 'low'], help='Overall reliability to retain the markers. Default is "high".')
+    screen_parser_filters.add_argument('--diff_parental', type=str, required=True, help='Common parental or parental for which we want to find a unique variant relative to alternative parentals.')
     screen_parser_filters.add_argument('--potential_size_of_amplicon', type=int, required=False, default=300, help="This is the desired size of the amplicon. This value is going to be used, assuming the variant will be in the middle of the amplicon, to search half of this size to the right and to the left, and see if a typical primer could be set up to amplify the region without being put in another variant region (which could disrupt amplification)")
     screen_parser_filters.add_argument('--potential_size_of_primers', type=int, required=False, default=20, help="This is the desired size of the primers. This value is going to be used to search for primers in the region of interest. Default is 20.")
     screen_parser_filters.add_argument('--displace_amplicon_window', action='store_true', help='Displace the amplicon window to the right and left of the variant. This is going to be used to search to try to accommodate the primers if they originally fall in a variant region. Default is False.')
@@ -145,7 +146,7 @@ def main():
                                     min_depth=args.min_depth)
     elif args.command == 'Screen':
         screen_variants(args.inferred_alleles_tsv, args.output_dir, args.allele_col_pattern, args.overall_reliability_to_retain,
-                        args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,
+                        args.diff_parental, args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,
                         args.displacement_tol)
     elif args.command == 'Design':
         # Primer design step based on primer3
