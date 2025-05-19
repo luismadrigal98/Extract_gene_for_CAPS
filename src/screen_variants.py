@@ -101,12 +101,22 @@ def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, d
             
         diff_col = diff_cols[0]  # Use the first matching column
         alt_cols = [col for col in allele_cols if col != diff_col]
-        
+
+        # Debug: print column information to verify correct columns are selected
+        logging.info(f"Differential column: {diff_col}")
+        logging.info(f"Alternative columns: {alt_cols}")
+
         # Filter variants where ALL alt parents differ from common parent
         mask = pd.Series(True, index=df_filtered.index)  # Start with all True
         for alt_col in alt_cols:
-            mask &= (df_filtered[diff_col] != df_filtered[alt_col])  # AND operation instead of OR
-        
+            # Add debug logging to see values being compared
+            # mask &= (df_filtered[diff_col] != df_filtered[alt_col])
+            diff_values = df_filtered[diff_col] != df_filtered[alt_col]
+            mask &= diff_values
+            
+            # Debug: count how many rows pass each filter
+            logging.info(f"After filtering on {alt_col}: {mask.sum()} rows remain")
+
         df_filtered = df_filtered[mask]
         logging.info(f"Filtered to {len(df_filtered)} variants with different parental alleles.")
         
