@@ -110,7 +110,7 @@ def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, d
         mask = pd.Series(True, index=df_filtered.index)  # Start with all True
         for index in df_filtered.index:
             # Check if the allele in the differential column is different from the common parent
-            if any(df_filtered.loc[index, alt_cols].isin([df_filtered.loc[index, diff_col]])):
+            if any(df_filtered.loc[index, alt_cols].to_numeric.isin([df_filtered.loc[index, diff_col].to_numeric])):
                 mask[index] = False
 
         df_filtered = df_filtered[mask]
