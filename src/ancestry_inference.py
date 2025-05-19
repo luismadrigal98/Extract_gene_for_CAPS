@@ -723,26 +723,88 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                         parent_reliability = 'low'
                         parent_source = 'low_depth_parental'
                 
-                # TIER 2: Haplotype block evidence (if available and parent_allele is still 'N')
-                if parent_allele == 'N' and parent in parental_haplotypes:
-                    pos = variant['POS']
-                    hap = parental_haplotypes[parent]
+                # TIER 2: F2-contingent haplotype evidence
+                if parent_allele == 'N' and has_f2_data:
+                    # First gather F2 samples relevant to this parent
+                    relevant_f2s = []
+                    if parent in common_parents:
+                        relevant_f2s.extend(common_parents[parent])
+                    if parent in alt_parents:
+                        relevant_f2s.extend(alt_parents[parent])
                     
-                    # Find flanking variants
-                    left_vars = [p for p in hap if p[0] < pos]
-                    right_vars = [p for p in hap if p[0] > pos]
-                    
-                    # If we have flanking variants within 50kb
-                    if left_vars and right_vars:
-                        if pos - left_vars[-1][0] < 50000 and right_vars[0][0] - pos < 50000:
-                            # Check if flanking variants have same allele
-                            if left_vars[-1][1] == right_vars[0][1]:
-                                parent_allele = left_vars[-1][1]
-                                parent_confidence = 0.5  # Lowered from 0.9
-                                parent_reliability = 'low'  # Lowered from 'high'
-                                parent_source = 'haplotype_block'
-                
-                # TIER 3: F2 evidence (if available and parent_allele still 'N')
+                    if relevant_f2s:
+                        # Find F2s with data at this position
+                        f2s_with_data = [f2 for f2 in relevant_f2s if f2 in variant and extract_genotype(variant[f2]) != './.']
+                        
+                        if f2s_with_data:
+                            # Look for nearby variants where F2s show consistent segregation pattern
+                            current_pos = variant['POS']
+                            window_variants = roi_variants[(roi_variants['POS'] > current_pos - 50000) & 
+                                                            (roi_variants['POS'] < current_pos + 50000)]
+                            
+                            # For each F2 with data at current position, check consistency across nearby positions
+                            f2_haplotype_evidence = []
+                            
+                            for f2 in f2s_with_data:
+                                # Get this F2's genotype at current position
+                                current_gt = extract_genotype(variant[f2])
+                                
+                                # Check consistency in nearby variants
+                                consistent_positions = 0
+                                total_positions = 0
+                                
+                                for _, nearby_var in window_variants.iterrows():
+                                    if nearby_var['POS'] == current_pos:
+                                        continue  # Skip current position
+                                    
+                                    if f2 in nearby_var and extract_genotype(nearby_var[f2]) == current_gt:
+                                        consistent_positions += 1
+                                    total_positions += 1
+                                
+                                if total_positions > 0 and consistent_positions / total_positions > 0.7:
+                                    # This F2 shows a consistent haplotype pattern
+                                    # Use it to infer parent's allele
+                                    
+                                    # For common parent:
+                                    if parent in common_parents and f2 in common_parents[parent]:
+                                        if current_gt == '0/0':
+                                            f2_haplotype_evidence.append(('0', 0.6))
+                                        elif current_gt == '1/1':
+                                            f2_haplotype_evidence.append(('1', 0.6))
+                                        # Heterozygous F2s are less useful for haplotype inference
+                                    
+                                    # For alternative parent:
+                                    elif parent in alt_parents and f2 in alt_parents[parent]:
+                                        # Get common parent for this F2
+                                        common_p = next(cp for cp, ap in f2_samples.items() if ap == parent)
+                                        common_p_allele = variant_record.get(f"{common_p}_allele")
+                                        
+                                        if common_p_allele != 'N':
+                                            if current_gt == '0/0' and common_p_allele == '0':
+                                                f2_haplotype_evidence.append(('0', 0.6))
+                                            elif current_gt == '1/1' and common_p_allele == '1':
+                                                f2_haplotype_evidence.append(('1', 0.6))
+                                            elif current_gt == '0/0' and common_p_allele == '1':
+                                                f2_haplotype_evidence.append(('0', 0.7))
+                                            elif current_gt == '1/1' and common_p_allele == '0':
+                                                f2_haplotype_evidence.append(('1', 0.7))
+                            
+                            # Combine all haplotype evidence
+                            if f2_haplotype_evidence:
+                                allele_votes = {'0': 0.0, '1': 0.0}
+                                for allele, confidence in f2_haplotype_evidence:
+                                    allele_votes[allele] += confidence
+                                
+                                if sum(allele_votes.values()) > 0:
+                                    haplotype_allele = max(allele_votes, key=allele_votes.get)
+                                    haplotype_confidence = max(allele_votes.values()) / sum(allele_votes.values())
+                                    
+                                    parent_allele = haplotype_allele
+                                    parent_confidence = 0.6 * haplotype_confidence  # Still moderate confidence
+                                    parent_reliability = 'medium'
+                                    parent_source = 'f2_haplotype_inference'
+
+                # TIER 3: Standard F2 evidence (keep as is but as Tier 3)
                 if parent_allele == 'N' and has_f2_data:
                     # Process parent as common parent
                     if parent in common_parents:
