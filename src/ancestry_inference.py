@@ -686,10 +686,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             # Check if this position has F2 data
             has_f2_data = any(sample in variant for sample in f2_samples)
             
-            # Skip positions that have no F2 data unless we want to use assembly
-            if not has_f2_data and not use_assembly_when_f2_missing:
-                continue
-            
+            # Create the variant record for ALL positions
             variant_record = {
                 'CHROM': variant['CHROM'],
                 'POS': variant['POS'],
@@ -700,10 +697,10 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             
             # Process each parent
             for parent in all_parents:
-                parent_allele = 'N'
+                parent_allele = 'N'  # Changed from 'NA' to 'N' for consistency
                 parent_confidence = 0.0
                 parent_reliability = 'none'
-                parent_source = 'none'
+                parent_source = 'no_data_available'  # Better description than just 'none'
                 
                 # TIER 1: Direct parental genotype (if available)
                 if parent in variant:
@@ -720,6 +717,11 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                         parent_confidence = min(0.5 + (depth / 20), 0.95)
                         parent_reliability = 'high' if depth >= 10 else 'medium'
                         parent_source = 'direct_parental'
+                    elif gt != './.':  # Low depth but still has data
+                        parent_allele = '0' if gt == '0/0' else '1'
+                        parent_confidence = 0.3  # Low confidence due to insufficient depth
+                        parent_reliability = 'low'
+                        parent_source = 'low_depth_parental'
                 
                 # TIER 2: Haplotype block evidence (if available and parent_allele is still 'N')
                 if parent_allele == 'N' and parent in parental_haplotypes:
@@ -906,6 +908,16 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                 variant_record[f"{parent}_confidence"] = round(parent_confidence, 2)
                 variant_record[f"{parent}_reliability"] = parent_reliability
                 variant_record[f"{parent}_source"] = parent_source
+
+                # After all tiers are processed, categorize the data availability status
+                if parent_source == 'no_data_available':
+                    variant_record[f"{parent}_data_status"] = "missing"
+                elif parent_source in ['direct_parental', 'haplotype_block']:
+                    variant_record[f"{parent}_data_status"] = "direct"
+                elif parent_source == 'f2_inference':
+                    variant_record[f"{parent}_data_status"] = "inferred"
+                elif parent_source == 'low_depth_parental':
+                    variant_record[f"{parent}_data_status"] = "low_quality"
             
             # Add summary columns:
             
