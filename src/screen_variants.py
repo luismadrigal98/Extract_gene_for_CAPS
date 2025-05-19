@@ -86,7 +86,7 @@ def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, d
         else:  # 'low' includes all levels
             threshold = ['high', 'medium', 'low']
             
-        df_filtered = df[df['overall_reliability'].isin(threshold) if isinstance(threshold, list) else df['overall_reliability'] == threshold]
+        df_filtered = df[df['overall_reliability'].isin(threshold) if isinstance(threshold, list) else df['overall_reliability'] == threshold].copy()
         logging.info(f"Filtered {len(df_filtered)} rows based on reliability threshold in {file}.")
         
         if df_filtered.empty:
