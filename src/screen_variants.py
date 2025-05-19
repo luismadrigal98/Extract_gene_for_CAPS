@@ -106,14 +106,50 @@ def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, d
         logging.info(f"Differential column: {diff_col}")
         logging.info(f"Alternative columns: {alt_cols}")
 
-        # Filter variants where ALL alt parents differ from common parent
-        mask = pd.Series(True, index=df_filtered.index)  # Start with all True
-        for index in df_filtered.index:
-            # Check if the allele in the differential column is different from the common parent
-            if any(df_filtered.loc[index, alt_cols].to_numeric.isin([df_filtered.loc[index, diff_col].to_numeric])):
-                mask[index] = False
+        # Step 1: Ensure relevant allele columns are of a consistent numeric type (e.g., integer)
+        # This is done once before the loop for efficiency.
+        columns_to_convert = [diff_col] + alt_cols
+        for col_name in columns_to_convert:
+            if col_name in df_filtered.columns:
+                try:
+                    # Convert to numeric, coercing errors to NaN. Then cast to nullable integer.
+                    df_filtered[col_name] = pd.to_numeric(df_filtered[col_name], errors='coerce')
+                    if df_filtered[col_name].isnull().any():
+                        logging.debug(f"Column {col_name} contained non-numeric values coerced to NaN.")
+                    df_filtered[col_name] = df_filtered[col_name].astype('Int64') # Use nullable integer
+                except Exception as e:
+                    logging.error(f"Error converting column {col_name} to numeric: {e}. Filtering may be affected.")
+                    # Depending on desired behavior, you might want to skip the current file or raise an error.
+            else:
+                logging.warning(f"Allele column {col_name} not found in DataFrame for numeric conversion. Skipping its conversion.")
 
-        df_filtered = df_filtered[mask]
+
+        # Step 2: Filter variants. We want to keep rows where ALL alt alleles are DIFFERENT from the diff_col allele.
+        # So, we mark a row for REMOVAL if ANY alt allele is THE SAME AS the diff_col allele.
+        
+        # Initialize mask: True means keep the row, False means remove.
+        rows_to_keep_mask = pd.Series(True, index=df_filtered.index)
+
+        for index, row in df_filtered.iterrows(): # Using iterrows for convenient row access
+            differential_allele_value = row[diff_col]
+
+            # If the differential allele itself is NaN (e.g., due to conversion error or missing data),
+            # it's ambiguous. For safety, let's mark such rows for removal. Adjust if needed.
+            if pd.isna(differential_allele_value):
+                rows_to_keep_mask.loc[index] = False
+                continue
+
+            # Check if any alternative allele is THE SAME AS the differential allele
+            found_matching_alt_allele = False
+            for alt_column_name in alt_cols:
+                if row[alt_column_name] == differential_allele_value: # Direct comparison of numeric values
+                    found_matching_alt_allele = True
+                    break # A match is found, no need to check other alt_cols for this row
+            
+            if found_matching_alt_allele:
+                rows_to_keep_mask.loc[index] = False # Mark row for removal
+
+        df_filtered = df_filtered[rows_to_keep_mask]
         logging.info(f"Filtered to {len(df_filtered)} variants with different parental alleles.")
         
         if df_filtered.empty:
