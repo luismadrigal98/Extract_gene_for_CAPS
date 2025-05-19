@@ -89,13 +89,14 @@ def main():
     inference_parser = subparsers.add_parser('Infer', help='Infer the ancestry of the F2 data')
     inference_parser.add_argument('--vcf', type=str, required=True, help='Input VCF file')
     inference_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
-    inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved. This will allow to retrieve the identity of the alleles present in the original parental lines.') 
-    inference_parser.add_argument('--output', type=str, required=True, help="Ouptput name. This is a file with the variant information and the inferred allele from each parental line. So, instead of having the actual samples, we will see the alleles for each parental. Also, the likelihood of the allele will be reported if specified.")
+    inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved.') 
+    inference_parser.add_argument('--output', type=str, required=True, help="Output name for parental allele inference results")
     inference_parser.add_argument('--context', type=int, default=20, help='How many variants to consider in the contextual analysis.')
-    inference_parser.add_argument('--approach', type=str, default='single', choices=['multiple', 'single'], help='Approach to use for the ancestry inference. This refers to the whether you have multiple instances per genetic family or only one (exploratory analysis). Default is multiple.')
-    inference_parser.add_argument('--use_assembly_only', action='store_true', help='Only use assembly data when available and ignore F2 data')
-    inference_parser.add_argument('--require_f2', action='store_true', default=True, help='Require F2 evidence for positions without assembly data')
-    
+    inference_parser.add_argument('--approach', type=str, default='single', choices=['multiple', 'single'], help='Approach to use for the ancestry inference.')
+    inference_parser.add_argument('--use_assembly_when_f2_missing', action='store_true', 
+                             help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
+    inference_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
+
     # Searching for diagnostic markers  <<< Pending to be implemented
 
     screen_parser = subparsers.add_parser('Screen', help='Screen the variants for diagnostic markers')
@@ -142,7 +143,8 @@ def main():
             infer_ancestry_multiple(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.context)
         elif args.approach == 'single':
             infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output, 
-                                    use_assembly_only=args.use_assembly_only, require_f2=args.require_f2)
+                                    use_assembly_when_f2_missing=args.use_assembly_when_f2_missing,
+                                    min_depth=args.min_depth)
     elif args.command == 'Screen':
         screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_dp,
                         args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)

@@ -524,7 +524,7 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
 
-def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_only=False, require_f2=True, min_depth=3):
+def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when_f2_missing=False, min_depth=3):
     """
     Infer parental alleles for single F2 individuals with integrated assembly data handling.
     
@@ -533,8 +533,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_only
         ROI_list: Path to regions of interest file
         ancestry_log: Path to relationship map file
         output: Base name for output files
-        use_assembly_only: If True, prioritize parental genotypes over F2-based inference
-        require_f2: If True, only include positions with F2 data
+        use_assembly_when_f2_missing: If True, use assembly data for positions without F2 data
         min_depth: Minimum read depth to consider a call reliable
     """
     # Read input files
@@ -577,8 +576,8 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_only
         
         # Filter variants in this ROI
         roi_variants = vcf_df[(vcf_df['CHROM'] == chrom) & 
-                             (vcf_df['POS'] >= start) & 
-                             (vcf_df['POS'] <= end)]
+                                (vcf_df['POS'] >= start) & 
+                                (vcf_df['POS'] <= end)]
         
         if len(roi_variants) == 0:
             logging.info(f"No variants found in ROI {roi_name}")
@@ -684,18 +683,19 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_only
         
         # STEP 3: Process each variant position
         for _, variant in tqdm(roi_variants.iterrows(), desc=f"Processing variants in {roi_name}"):
-            # Skip if we require F2 data but none of the F2 samples are present
-            if require_f2:
-                f2_present = any(sample in variant for sample in f2_samples)
-                if not f2_present:
-                    continue
+            # Check if this position has F2 data
+            has_f2_data = any(sample in variant for sample in f2_samples)
+            
+            # Skip positions that have no F2 data unless we want to use assembly
+            if not has_f2_data and not use_assembly_when_f2_missing:
+                continue
             
             variant_record = {
                 'CHROM': variant['CHROM'],
                 'POS': variant['POS'],
                 'REF': variant['REF'],
                 'ALT': variant['ALT'],
-                'has_f2_data': any(sample in variant for sample in f2_samples)
+                'has_f2_data': has_f2_data
             }
             
             # Process each parent
@@ -705,13 +705,13 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_only
                 parent_reliability = 'none'
                 parent_source = 'none'
                 
-                # TIER 1: Direct parental genotype (if available and use_assembly_only is True)
-                if parent in variant and use_assembly_only:
+                # TIER 1: Direct parental genotype (if available)
+                if parent in variant:
                     gt, depth, _ = extract_genotype(variant[parent], return_quality=True)
                     
                     if gt == '0/0' and depth >= min_depth:
                         parent_allele = '0'
-                        parent_confidence = min(0.5 + (depth / 20), 0.95)  # Scale with depth up to 0.95
+                        parent_confidence = min(0.5 + (depth / 20), 0.95)
                         parent_reliability = 'high' if depth >= 10 else 'medium'
                         parent_source = 'direct_parental'
                     
@@ -740,8 +740,8 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_only
                                 parent_reliability = 'high'
                                 parent_source = 'haplotype_block'
                 
-                # TIER 3: F2 evidence (if not use_assembly_only or parent_allele still 'N')
-                if (not use_assembly_only or parent_allele == 'N') and variant_record['has_f2_data']:
+                # TIER 3: F2 evidence (if available and parent_allele still 'N')
+                if parent_allele == 'N' and has_f2_data:
                     # Process parent as common parent
                     if parent in common_parents:
                         evidence_for_parent = []
