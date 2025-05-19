@@ -113,7 +113,13 @@ def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, d
         if df_filtered.empty:
             logging.warning(f"No variants remaining after parental allele filtering. Skipping.")
             continue
-            
+        
+        # Select only relevant columns (variant info, allele columns, and individual reliability, in this order)
+
+        relevant_cols = ['POS', 'REF', 'ALT', 'overall_reliability'] + [diff_col] + alt_cols + [col for col in df_filtered.columns if col.endswith('_reliability')]
+
+        df_filtered = df_filtered[relevant_cols]
+
         # Create new columns for primer compliance
         df_filtered['primer_compliant'] = False
         df_filtered['amplicon_start'] = None
