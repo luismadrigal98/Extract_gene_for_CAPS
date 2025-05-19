@@ -49,6 +49,10 @@ def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, d
     tsv_data = {}
     logging.info("Reading TSV files...")
     
+    # Check if the output directory exists, if not create it
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
     for tsv_file in tsv_list:
         name = os.path.basename(tsv_file).split('.')[0]
         logging.info(f"Processing file: {name}")
