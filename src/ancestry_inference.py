@@ -738,8 +738,8 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                             # Check if flanking variants have same allele
                             if left_vars[-1][1] == right_vars[0][1]:
                                 parent_allele = left_vars[-1][1]
-                                parent_confidence = 0.9
-                                parent_reliability = 'high'
+                                parent_confidence = 0.5  # Lowered from 0.9
+                                parent_reliability = 'low'  # Lowered from 'high'
                                 parent_source = 'haplotype_block'
                 
                 # TIER 3: F2 evidence (if available and parent_allele still 'N')
