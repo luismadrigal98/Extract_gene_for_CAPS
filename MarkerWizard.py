@@ -103,25 +103,23 @@ def main():
 
     screen_parser_global = screen_parser.add_argument_group("Global arguments")
 
-    screen_parser_global.add_argument('--vcf', type=str, required=True, help='Input VCF file. This is the filtered vcf file with the variants that are in the ROI list and are in genic regions.')
-    screen_parser_global.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
+    screen_parser_global.add_argument('--inferred_alleles_tsv', nargs='+', type=str, required=True, help='This should be a tab delimited file with the inferred alleles for parental lines involved in the mapping population.')
     screen_parser_global.add_argument('--output_dir', type=str, required=True, help='Output file for the screened variants. This is a directory where individual tab-delimited files per region of interest are going to be created. Each file contains the ID of the marker, and the coordinates for further extraction when primers are going to be design.')
 
-    screen_parser_filtering = screen_parser.add_argument_group("Filtering by conditions to meet. High level filtering before starting the application of the rules to detect diagnostic markers.")
+    screen_parser_filters = screen_parser.add_argument_group("Filtering arguments")
 
-    screen_parser_filtering.add_argument('--min_dp', type=int, required=False, help='Minimum depth of coverage for the variants to be considered. Default is 5.', default=10) # Remember, you are working with shallow sequencing data, so the depth of coverage is going to be low. The default is 5, but you can change it to 10 if you want.
-
-    screen_parser_rules = screen_parser.add_argument_group("Rules to detect diagnostic markers. These rules are going to be applied to the filtered variants.")
-
-    screen_parser_rules.add_argument('--distance_to_closest_marker', type=int, required=False, help='Distance to the closest marker. Default is 1000 bp.', default=1000) # This is the distance to the closest marker. If the distance is too small, the markers are going to be too close to each other and they are going to be difficult to amplify.
-    screen_parser_rules.add_argument('--non_informative_thr_F2s', type=int, required=False, help='Non informative threshold for the F2s. In other words, how many missing genotypes are we willing to accept. Default is 2.', default=2)
-    screen_parser_rules.add_argument('--heterozygous_thr_support_F2s', type=int, required=False, help='Heterozygous threshold for the F2s. In other words, how many heterozygous genotypes are we willing to accept. Default is 2.', default=2)
+    screen_parser_filters.add_argument('--allele_col_pattern', type=str, required=False, default='_allele', help='Pattern to identify the allele columns in the inferred alleles file. Default is "_allele".')
+    screen_parser_filters.add_argument('--overall_reliability_to_retain', type=str, required=False, default='high', choices=['high', 'medium', 'low'], help='Overall reliability to retain the markers. Default is "high".')
+    screen_parser_filters.add_argument('--potential_size_of_amplicon', type=int, required=False, default=300, help="This is the desired size of the amplicon. This value is going to be used, assuming the variant will be in the middle of the amplicon, to search half of this size to the right and to the left, and see if a typical primer could be set up to amplify the region without being put in another variant region (which could disrupt amplification)")
+    screen_parser_filters.add_argument('--potential_size_of_primers', type=int, required=False, default=20, help="This is the desired size of the primers. This value is going to be used to search for primers in the region of interest. Default is 20.")
+    screen_parser_filters.add_argument('--displace_amplicon_window', action='store_true', help='Displace the amplicon window to the right and left of the variant. This is going to be used to search to try to accommodate the primers if they originally fall in a variant region. Default is False.')
+    screen_parser_filters.add_argument('--displacement_tol', type=int, required=False, default=10, help='Displacement tolerance for the amplicon window. This is going to be used to search to try to accommodate the primers if they originally fall in a variant region. Default is 10. In other words, how many steps can we move the window to the right or to the left?')
 
     # Primer design step based on primer3
     design_parser = subparsers.add_parser('Design', help='Design primers for the variants')
 
     design_parser_inout = design_parser.add_argument_group("Input and output files")
-    design_parser_inout.add_argument('--output', '-o', type=str, required=True, help='Output file for the designed primers')
+    design_parser_inout.add_argument('--output', '-o',type=str, required=True, help='Output file for the designed primers')
     design_parser_inout.add_argument('--error_log', '-e', type=str, required=False, help='Error log file for the designed primers')
 
     design_parser_primer3 = design_parser.add_argument_group("Primer3 arguments")
@@ -146,8 +144,9 @@ def main():
                                     use_assembly_when_f2_missing=args.use_assembly_when_f2_missing,
                                     min_depth=args.min_depth)
     elif args.command == 'Screen':
-        screen_variants(args.vcf, args.ROI_list, args.output_dir, args.min_dp,
-                        args.distance_to_closest_marker, args.non_informative_thr_F2s, args.heterozygous_thr_support_F2s)
+        screen_variants(args.inferred_alleles_tsv, args.output_dir, args.allele_col_pattern, args.overall_reliability_to_retain,
+                        args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,
+                        args.displacement_tol)
     elif args.command == 'Design':
         # Primer design step based on primer3
         design_primers()

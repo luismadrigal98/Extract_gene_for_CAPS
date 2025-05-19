@@ -13,46 +13,96 @@ import os
 import sys
 from tqdm import tqdm
 import pandas as pd
+import logging
 
 # Add the path to the src directory to the system path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from src.masking_vcf import read_vcf
+setup_logging = lambda: logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("screen_variants.log"),
+        logging.StreamHandler()
+    ]
+)
 
-def screen_variants(vcf_file, ROI_list, output_dir, min_qual, min_dp,
-                    distance_to_closest_marker, non_informative_thr_F2s,
-                    heterozygous_thr_support_F2s):
+read_tsv = lambda file_path: pd.read_csv(file_path, sep='\t', header=0, low_memory=False)
+
+def screen_variants(tsv_list, output_dir, allele_col_pattern, reliability_thr, diff_parent, amplicon_size, primer_size, displacement, displacement_steps):
     """
     Screen the variants for diagnostic markers.
     
     Parameters:
-        vcf_file (str): Path to the input VCF file.
-        ROI_list (str): Path to the list of regions of interest (ROI).
-        output_dir (str): Directory where the output files will be saved.
-        min_qual (float): Minimum quality score for the variants to be considered.
-        min_dp (int): Minimum depth of coverage for the variants to be considered.
-        distance_to_closest_marker (int): Distance to the closest marker.
-        non_informative_thr_F2s (int): Non informative threshold for the F2s.
+    tsv_list (list): List of TSV files to screen.
+    output_dir (str): Directory to save the output files.
+    allele_col_pattern (str): Pattern to match the allele columns.
+    reliability_thr (float): Minimum reliability threshold.
+    diff_parent (str): Identifier for the common parental allele. E. g. "664c"
+    amplicon_size (int): Size of the amplicon.
+    primer_size (int): Size of the primer.
+    displacement (bool): Whether we can move the amplicon window to accommodate primers in a varian region.
+    displacement_steps (int): Number of steps to move the amplicon window.
     """
     
-    # Read the VCF file
+    # Read the TSV files
 
-    vcf_df = read_vcf(vcf_file)
+    tsv_data = {}
 
-    # Apply the global filtering first
+    logging.info("Reading TSV files...")
 
-    # Filter by quality score
-    vcf_df = vcf_df[vcf_df['QUAL'] >= min_qual]
+    for tsv_file in tsv_list:
+        
+        name = os.path.basename(tsv_file).split('.')[0]
+        logging.info(f"Processing file: {name}")
 
-    # Define sample columns
-    sample_columns = vcf_df.columns[9:]
+        # Read the TSV file
+        tsv_data[tsv_file] = read_tsv(tsv_file)
+        
+        # Check if the file is empty
+        if tsv_data[tsv_file].empty:
+            logging.warning(f"File {tsv_file} is empty. Skipping.")
+            continue
+    
+    # Process each TSV file
 
-    # Filter by depth (Allelic depth)
-    for _, row in tqdm(vcf_df.iterrows(), total=len(vcf_df), desc="Filtering by depth"):
-        # Check the AD field for each sample, and ensure that the total depth is above the threshold
-        # GT:PL:AD        ./.:0,0,0:0,0   <<< This is the format of the field
-        vcf_df['pass_depth'] = vcf_df[sample_columns].apply(
-            
-        )
-        vcf_df = vcf_df[vcf_df['pass_depth']]
-        vcf_df.drop(columns=['pass_depth'], inplace=True)
+    for file in tqdm(tsv_data.keys(), desc="Processing TSV files", unit="file", total=len(tsv_data)):
+        
+        df = tsv_data[file]
+        
+        # Filter the columns based on the allele column pattern
+        allele_cols = [col for col in df.columns if allele_col_pattern in col]
+        
+        if not allele_cols:
+            logging.warning(f"No allele columns found in {file}. Skipping.")
+            continue
+        
+        # Filter the rows based on the reliability threshold
+        df_filtered = df[df['overall_reliability'] >= reliability_thr]
+
+        logging.info(f"Filtered {len(df_filtered)} rows based on reliability threshold in {file}.")
+        
+        if df_filtered.empty:
+            logging.warning(f"No rows found after filtering by reliability in {file}. Skipping.")
+            continue
+        
+        # MAIN LOGIC HERE
+        # First, in order to be useful the variant, the common parental allele must be different from the alternative alleles
+
+        logging.info(f"Filtering variants based on common parental allele {diff_parent} in {file}.")
+
+        # Filter out rows where the common parental allele is the same as the alternative alleles
+
+        for col in allele_cols:
+            diff_col = allele_cols[diff_parent in allele_cols]
+            alt_cols = [col for col in allele_cols if col != diff_col]
+
+            # Check if the common parental allele is different from the alternative alleles
+            df_filtered = df_filtered[~df_filtered[diff_col].isin(df_filtered[alt_cols].values.flatten())]
+            logging.info(f"Filtered {len(df_filtered)} rows based on common parental allele in {file}.")
+        
+        # Save the processed DataFrame to the output directory
+        output_file = os.path.join(output_dir, os.path.basename(file))
+        df_filtered.to_csv(output_file, sep='\t', index=False)
+        
+        logging.info(f"Processed file saved to {output_file}")
