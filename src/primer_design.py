@@ -243,8 +243,6 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 if '=' in line and line.startswith('PRIMER_'):
                     key, value = line.strip().split('=', 1)
                     default_settings[key] = value
-                print(line)
-                print("I can read the file for sure.")
     
     # List to store all primer results
     all_results = []
@@ -341,7 +339,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     continue
                 
                 # Run primer3
-                primer3_output = run_primer3(temp_input_path, settings_file, primer3_args)
+                primer3_output = run_primer3(input_file=temp_input_path, settings_file=settings_file, rimer3_args=primer3_args)
                 os.unlink(temp_input_path)  # Clean up
                 
                 if not primer3_output:
