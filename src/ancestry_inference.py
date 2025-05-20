@@ -692,6 +692,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                 'POS': variant['POS'],
                 'REF': variant['REF'],
                 'ALT': variant['ALT'],
+                'QUAL': variant['QUAL'],
                 'has_f2_data': has_f2_data
             }
             
@@ -1095,6 +1096,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                     'POS': result['POS'],
                     'REF': result['REF'],
                     'ALT': result['ALT'],
+                    'QUAL': result['QUAL'],
                     'has_f2_data': result['has_f2_data'],
                     'complete_info': result['complete_info'],
                     'overall_reliability': result['overall_reliability']
