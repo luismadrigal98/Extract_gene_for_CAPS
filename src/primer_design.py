@@ -98,9 +98,6 @@ def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core',
     if settings_file:
         cmd.extend(["--p3_settings_file", settings_file])
     
-    # Add format output flag
-    cmd.extend(["--format_output"])
-    
     try:
         # Run primer3 with input file redirected to stdin
         with open(input_file, 'r') as f:
@@ -133,7 +130,6 @@ def parse_primer3_output(output):
     result = {}
     
     # Parse the Boulder-IO format
-    current_key = None
     for line in output.split("\n"):
         if line.strip() == "=":
             break
@@ -186,9 +182,9 @@ def parse_primer3_output(output):
     }
 
 def design_primers(input_files, reference_fasta, output_file, settings_file=None, 
-                   primer3_exe="primer3_core", primer3_args="", quality_threshold="high", 
-                   min_high=3, min_medium=2, max_low=0, flanking_size=200, max_variants=50,
-                   error_log=None):
+                    primer3_exe="~/.conda/envs/salmon/bin/primer3_core", primer3_args="", quality_threshold="high", 
+                    min_high=3, min_medium=2, max_low=0, flanking_size=150, max_variants=50,
+                    error_log=None):
     """
     Design primers for variants using Primer3.
     
