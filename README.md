@@ -1,23 +1,29 @@
-# Extract_gene_for_CAPS
+# MarkerWizard: Multi-Evidence Diagnostic Marker Development Tool
 
-A collection of Python scripts for processing and analyzing genomic data, particularly focused on gene extraction and sequence analysis from GFF3 and FASTA files.
+MarkerWizard is a comprehensive toolkit for developing robust diagnostic markers for genotyping, particularly focused on identifying reliable polymorphic sites using multiple lines of evidence.
 
 ## Overview
 
-This pipeline consists of five scripts that work together to:
-1. Extract genes from regions of interest in GFF3 files
-2. Screen and sort genes by length
-3. Extract gene sequences from reference genomes
-4. Build FASTA files from sequence data
-5. Sort and group genes across multiple FASTA files
-6. Reverse complement sequences
+This pipeline integrates various data sources to identify high-confidence markers:
+1. **Remaps variants** between different reference assemblies
+2. **Filters variants** to focus on genic regions
+3. **Infers ancestry** using F2 segregation data
+4. **Screens for diagnostic markers** based on defined criteria
+5. **Designs primers** for the identified markers
 
 ## Requirements
 
 - Python 3.x
-- pandas
-- gffpandas
-- minimap2 (for sequence alignment)
+- Dependencies:
+  - pandas
+  - tqdm
+  - logging
+  - intervaltree
+  - Bio (BioPython)
+- External tools:
+  - minimap2 (for sequence alignment)
+  - samtools
+  - primer3 (for primer design)
 
 ## Installation
 
@@ -26,131 +32,113 @@ This pipeline consists of five scripts that work together to:
 git clone https://github.com/luismadrigal98/Extract_gene_for_CAPS.git
 
 # Install required Python packages
-pip install pandas gffpandas
+pip install pandas tqdm intervaltree biopython
 
-# Ensure minimap2 is installed on your system
+# Ensure external tools are installed on your system
 # For Ubuntu/Debian:
-sudo apt-get install minimap2
+sudo apt-get install minimap2 samtools
 ```
 
-## Scripts Description (For step-by-step execution)
+## Usage
 
-### 1. Genes by ROI (`01_genes_by_ROI.py`)
-Extracts genes from specified regions of interest in a GFF3 file.
+MarkerWizard is organized as a command-line tool with several subcommands:
+
+### 1. Remap Variants
+
+Remaps regions of interest (ROI) between two different genome assemblies.
 
 ```bash
-python 01_genes_by_ROI.py <GFF3_file> [-roi_file ROI_FILE] [-roi ROI...] [-of {csv,tsv}]
+python MarkerWizard.py Remap --current_ref <CURRENT_REF_FASTA> --new_ref <NEW_REF_FASTA> \
+  --ROI_list <ROI_LIST> --output <OUTPUT_FILE> [options]
 ```
 
-- `GFF3_file`: Input GFF3 file with gene annotations
-- `-roi_file`: File containing regions of interest (format: ROI_name\tChromosome\tstart\tend)
-- `-roi`: Direct command line input of regions (format: ROI_name_Chromosome_start_end)
-- `-of`: Output format (csv/tsv)
+Options:
+- `--minimap2`: Path to minimap2 executable
+- `--minimap2_opts`: Options for minimap2
+- `--samtools_exe`: Path to samtools executable
+- `--temp_dir`: Temporary directory
+- `--keep`: Keep intermediate files
 
-### 2. Gene Screener (`02_gene_screener_by_length.py`)
-Screens and sorts genes by length from the output of script 1.
+### 2. Mask Variants
+
+Filters VCF files to focus on variants in genic regions within specified ROIs.
 
 ```bash
-python 02_gene_screener_by_length.py -i INPUT_FILE [-s SEPARATOR] [-of {csv,tsv}]
+python MarkerWizard.py Mask --vcf <VCF_FILE> --gff3 <GFF3_FILE> \
+  --ROI_list <ROI_LIST> --output <OUTPUT_FILE> [options]
 ```
 
-- `-i`: Input file (CSV/TSV from script 1)
-- `-s`: Separator (',' or '\t')
-- `-of`: Output format
+Options:
+- `--only_biallelic`: Only keep biallelic variants
+- `--min_qual`: Minimum quality score (default: 20)
 
-### 3. Gene Sequence Extractor (`03_gene_sequence_extractor.py`)
-Extracts gene sequences from a reference FASTA file.
+### 3. Infer Ancestry
+
+Infers parental alleles from F2 segregation data.
 
 ```bash
-python 03_gene_sequence_extractor.py -i INPUT -gd GENE_DICT -ch CHROMOSOME -f FASTA [-s SEP] [-on OUTPUT_NAME]
+python MarkerWizard.py Infer --vcf <VCF_FILE> --ROI_list <ROI_LIST> \
+  --ancestry_log <ANCESTRY_LOG> --output <OUTPUT_PREFIX> [options]
 ```
 
-- `-i`: Gene of interest or input file
-- `-gd`: Gene dictionary file (CSV/TSV)
-- `-ch`: Chromosome location
-- `-f`: Reference FASTA file
-- `-s`: Separator
-- `-on`: Output filename
+Options:
+- `--context`: Number of variants to consider in contextual analysis
+- `--approach`: Approach to use ('multiple' or 'single')
+- `--use_assembly_when_f2_missing`: Use assembly data for positions without F2 data
+- `--min_depth`: Minimum read depth to consider a call reliable
 
-### 4. FASTA Builder (`04_fasta_builder_per_line.py`)
-Constructs FASTA files from sequence data, processing multiple sequences.
+### 4. Screen Variants
+
+Screens variants for diagnostic markers based on defined criteria.
 
 ```bash
-python 04_fasta_builder_per_line.py -i INPUT [INPUT ...] -targ TARGET [TARGET ...] [-op OUTPUT_PREFIX] [-od OUTPUT_DIRECTORY]
+python MarkerWizard.py Screen --inferred_alleles_tsv <ALLELES_TSV> [<ALLELES_TSV>...] \
+  --output_dir <OUTPUT_DIRECTORY> --diff_parental <DIFF_PARENT> [options]
 ```
 
-- `-i`: Input FASTA file(s)
-- `-targ`: Target reference directories
-- `-op`: Output prefix
-- `-od`: Output directory
+Options:
+- `--allele_col_pattern`: Pattern to identify allele columns
+- `--overall_reliability_to_retain`: Reliability level ('high', 'medium', 'low')
+- `--potential_size_of_amplicon`: Desired amplicon size
+- `--potential_size_of_primers`: Desired primer size
+- `--displace_amplicon_window`: Allow displacement of amplicon window
+- `--displacement_tol`: Displacement tolerance steps
 
-### 5. FASTA Sorter (`05_fasta_sorter_by_gene.py`)
-Groups and sorts FASTA files by gene name.
+### 5. Design Primers
+
+Designs primers for the identified markers.
 
 ```bash
-python 05_fasta_sorter_by_gene.py (-id INPUT_DIRECTORY [INPUT_DIRECTORY ...] | -i INPUT [INPUT ...]) -g GENE_NAME [GENE_NAME ...]
+python MarkerWizard.py Design --output <OUTPUT_FILE> --settings_file <SETTINGS_FILE> [options]
 ```
 
-- `-id`: Input directory containing FASTA files
-- `-i`: Input FASTA files
-- `-g`: Gene names to extract
-
-## ROI Global Extractor
-
-The Global Extractor (`ROI_global_extractor.py`) automates the extraction and mapping of entire regions of interest (ROIs) across different genome assemblies.
-
-```bash
-python ROI_global_extractor.py -r ROI [-r ROI...] -f REFERENCE_FASTA -t TARGET [TARGET...] -o OUTPUT_PREFIX [--temp_dir TEMP_DIR] [--remove_temp]
-```
+Options:
+- `--primer3_exe`: Path to primer3 executable
+- `--primer3_clo`: Command line options for primer3
 
 ## Pipeline Workflow
 
-1. Start with a GFF3 file and identify regions of interest
-2. Extract and sort genes from these regions
-3. Extract gene sequences from reference genome
-4. Build and organize FASTA files
-5. Sort and group genes across files
+MarkerWizard employs a multi-evidence approach that integrates:
+
+1. **Remapping**: Translating regions of interest between genome assemblies
+2. **Genic Focus**: Restricting analysis to gene regions using GFF3 annotations
+3. **Segregation Evidence**: Using F2 data to identify sites with expected Mendelian patterns
+4. **Parental Validation**: Confirming polymorphisms between parental assemblies
+5. **Primer Design**: Designing optimal primers for validated polymorphic sites
+
+This integrated approach significantly improves the success rate of diagnostic marker development by filtering out artifacts and focusing on biologically validated polymorphisms.
 
 ## Output Files
 
-- Script 1: `{ROI_name}_{chromosome}_{start}_{end}_genes.{csv/tsv}`
-- Script 2: `{input_base_name}_sorted.{csv/tsv}`
-- Script 3: `{output_name}.fasta`
-- Script 4: `{output_prefix}_{input_file}_vs_{target_file}.fasta`
-- Script 5: `{gene_name}_grouped.fasta`
-
-## Steps for the global extractor (automated extraction of the entire ROI of interest)
-
-## Steps for the search of potential diagnostic markers using transferred annotation file for the focal line (with the variant or variants of interest), vcf file with F2-shallow sequenced plants and parental assemblies. This last step will leverage different levels of evidence, given that the previous approaches are sensitive to errors. This approach is also prone to error, but might be more robust in the long run. The idea is to use the annotation file to mask whatever that is not a gene, search for sites where we see heterozygous individuals (that could be due to differences between the common parental and each alternative line inside each family), see if in truth that difference also exist between the focal assembly and the alternative parental, and report those positions and variants for guiding the primer design.
-
-## 2. Enhanced Multi-Evidence Approach Description
-
-```markdown
-## Multi-Evidence Marker Development Pipeline
-
-This advanced approach addresses the limitations of single-evidence marker design by integrating multiple layers of genomic evidence to identify high-confidence polymorphic sites suitable for diagnostic marker development.
-
-### Rationale
-Traditional approaches often target assembly differences that may reflect technical artifacts rather than biological variation. This pipeline combines four independent lines of evidence to identify reliable polymorphic sites:
-
-1. **Genic Focus**: Utilizes gene annotation to restrict analysis to coding regions, which generally have higher assembly quality and more reliable mapping
-2. **Segregation Evidence**: Leverages F2 sequencing data to identify sites showing expected Mendelian segregation patterns
-3. **Parental Confirmation**: Validates polymorphisms by confirming their presence between parental assemblies
-4. **Functional Relevance**: Prioritizes variants with potential functional impact (missense, splice site) when possible
-
-### Workflow
-1. Use annotation files to mask non-genic regions in the focal genome
-2. Process VCF files from F2 shallow-sequenced plants to identify heterozygous sites
-3. For each heterozygous site, confirm the polymorphism exists between the focal and alternative parental assemblies
-4. Score and rank sites based on multiple quality metrics
-5. Generate primer design recommendations for the highest-ranking sites
-
-This integrated approach significantly improves the success rate of diagnostic marker development by filtering out artifacts and focusing on biologically validated polymorphisms.
-```
+- **Remapping**: Coordinate translation file between assemblies
+- **Masking**: Filtered VCF with variants in genic regions
+- **Inference**: TSV files with inferred parental alleles
+- **Screening**: TSV files with candidate diagnostic markers
+- **Design**: Primer design output files
 
 ## Author
 
-Luis J. Madrigal Roca
+Luis J. Madrigal Roca & John K. Kelly
 
 ## License
 
