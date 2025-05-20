@@ -312,7 +312,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                                 total=len(df_primer_compliant)):
                 
                 chrom = variant['CHROM']
-                pos = target_pos = variant['POS']
+                pos = variant['POS']
                 ref = variant['REF']
                 alt = variant['ALT']
                 
@@ -320,6 +320,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 start = max(1, pos - flanking_size)
                 end = pos + flanking_size
                 
+                # Calculate the target position
+                
+                target_pos = pos - start
+
                 # Extract sequence
                 sequence = extract_sequence(reference_fasta, chrom, start, end)
                 if not sequence:
