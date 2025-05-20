@@ -294,19 +294,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             
             # Order the variants by QUAL
 
-            # Ensure QUAL column is numeric before sorting
-            if 'QUAL' in df_primer_compliant.columns:
-                df_primer_compliant['QUAL'] = pd.to_numeric(df_primer_compliant['QUAL'], errors='coerce')
-                # Optionally, handle NaNs if they affect sorting undesirably, e.g., fill with a low value
-                # df_primer_compliant['QUAL'] = df_primer_compliant['QUAL'].fillna(-1) 
-            else:
-                logging.warning(f"'QUAL' column not found in {input_file} for sorting.")
-                # Decide how to proceed: sort by another column, or skip sorting, or raise error
-                # For now, let's assume if QUAL is not there, we don't sort by it or it might fail later if QUAL is expected
-            
-            # Order the variants by QUAL
-            if 'QUAL' in df_primer_compliant.columns:
-                df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
+            df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
 
             # Limit number of variants
             if len(df_primer_compliant) > max_variants and max_variants is not None:
