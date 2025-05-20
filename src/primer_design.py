@@ -183,7 +183,8 @@ def parse_primer3_output(output):
 
 def design_primers(input_files, reference_fasta, output_file, settings_file=None, 
                     primer3_exe="~/.conda/envs/salmon/bin/primer3_core", primer3_args="", quality_threshold="high", 
-                    min_high=3, min_medium=2, max_low=0, flanking_size=150, max_variants=50,
+                    min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length = 1,
+                    max_variants=50,
                     error_log=None):
     """
     Design primers for variants using Primer3.
@@ -200,6 +201,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     min_medium (int): Minimum number of medium quality variants.
     max_low (int): Maximum number of low quality variants.
     flanking_size (int): Size of flanking region on each side of variant.
+    target_length (int): Length of the target region for primer design (default to 1 when SNPs).
     max_variants (int): Maximum number of variants to design primers for.
     error_log (str, optional): Path to error log file.
     
@@ -290,18 +292,22 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 logging.warning(f"No primer compliant variants in {input_file}")
                 continue
             
+            # Order the variants by QUAL
+
+            df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
+
             # Limit number of variants
-            if len(df_primer_compliant) > max_variants:
+            if len(df_primer_compliant) > max_variants and max_variants is not None:
                 logging.warning(f"Limiting from {len(df_primer_compliant)} to {max_variants} variants in {input_file}")
                 df_primer_compliant = df_primer_compliant.head(max_variants)
             
             # Process each variant
             for _, variant in tqdm(df_primer_compliant.iterrows(), 
-                                  desc=f"Designing primers for variants in {os.path.basename(input_file)}",
-                                  total=len(df_primer_compliant)):
+                                desc=f"Designing primers for variants in {os.path.basename(input_file)}",
+                                total=len(df_primer_compliant)):
                 
                 chrom = variant['CHROM']
-                pos = variant['POS']
+                pos = target_pos = variant['POS']
                 ref = variant['REF']
                 alt = variant['ALT']
                 
@@ -315,23 +321,20 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     logging.error(f"Failed to extract sequence for {chrom}:{pos}")
                     continue
                 
-                # Calculate target position (0-based)
-                target_pos = pos - start
-                
                 # Create temporary input file
                 with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_input:
                     temp_input_path = temp_input.name
                 
                 # Create primer3 input
                 try:
-                    create_primer3_input(sequence, target_pos, default_settings, temp_input_path)
+                    create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, default_settings, temp_input_path)
                 except Exception as e:
                     logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
                     os.unlink(temp_input_path)  # Clean up
                     continue
                 
                 # Run primer3
-                primer3_output = run_primer3(primer3_exe, temp_input_path, settings_file, primer3_args)
+                primer3_output = run_primer3(temp_input_path, settings_file, primer3_args)
                 os.unlink(temp_input_path)  # Clean up
                 
                 if not primer3_output:
