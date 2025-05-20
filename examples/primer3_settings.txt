@@ -1,5 +1,6 @@
 Primer3 File - http://primer3.org
 P3_FILE_TYPE=settings
+
 P3_FILE_ID=Optimized settings for diagnostic CAPS marker design
 
 # Basic primer picking parameters
