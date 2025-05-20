@@ -402,8 +402,11 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     f.write(f"{primer['right']['sequence']}\t{result['region_start'] + primer['right']['start'] - primer['right']['length'] + 1}\t{primer['right']['tm']}\t{primer['right']['gc_percent']}\t")
                     f.write(f"{primer['product_size']}\t{primer['pair_penalty']}\n")
                     
-        logging.info(f"Successfully designed primers for {successful_designs} variants out of {sum(len(pd.read_csv(file, sep='\t')) for file in input_files)} total variants")
-        logging.info(f"Results written to {output_file}")
+        if successful_designs > 0:
+            logging.info(f"Successfully designed primers for {successful_designs} variants out of {sum(len(pd.read_csv(file, sep='\t')) for file in input_files)} total variants")
+            logging.info(f"Results written to {output_file}")
+        else:
+            logging.warning("No primers were successfully designed. Try again with different parameters. :) ")
     except Exception as e:
         logging.error(f"Error writing output file: {e}")
     
