@@ -302,10 +302,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
 
             # Limit number of variants
             print("DEBUGGING: TILL HERE WITHOUT A PROBLEM")
-            if max_variants != -9:
-                if len(df_primer_compliant) > max_variants and max_variants:
-                    logging.warning(f"Limiting from {len(df_primer_compliant)} to {max_variants} variants in {input_file}")
-                    df_primer_compliant = df_primer_compliant.head(max_variants)
+            # if max_variants != -9:
+            #     if len(df_primer_compliant) > max_variants and max_variants:
+            #         logging.warning(f"Limiting from {len(df_primer_compliant)} to {max_variants} variants in {input_file}")
+            #         df_primer_compliant = df_primer_compliant.head(max_variants)
             
             # Process each variant
             for _, variant in tqdm(df_primer_compliant.iterrows(), 
