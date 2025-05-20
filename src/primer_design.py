@@ -294,7 +294,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             
             # Order the variants by QUAL
 
-            df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
+            #df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
 
             # Limit number of variants
             if max_variants is not None:
