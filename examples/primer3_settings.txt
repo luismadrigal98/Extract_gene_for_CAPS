@@ -16,14 +16,14 @@ PRIMER_MAX_SIZE=25
 
 # Melting temperature constraints - narrow range for consistent PCR
 PRIMER_OPT_TM=60.0
-PRIMER_MIN_TM=57.0
-PRIMER_MAX_TM=63.0
-PRIMER_PAIR_MAX_DIFF_TM=3.0
+PRIMER_MIN_TM=56.0
+PRIMER_MAX_TM=65.0
+PRIMER_PAIR_MAX_DIFF_TM=4.0
 
 # GC content constraints - important for stability
-PRIMER_MIN_GC=35.0
+PRIMER_MIN_GC=30.0
 PRIMER_OPT_GC_PERCENT=50.0
-PRIMER_MAX_GC=65.0
+PRIMER_MAX_GC=70.0
 PRIMER_GC_CLAMP=1
 
 # Structural constraints - reduce primer dimers and hairpins
@@ -34,7 +34,7 @@ PRIMER_PAIR_MAX_COMPL_END_TH=40.0
 PRIMER_MAX_HAIRPIN_TH=40.0
 
 # Product size - multiple ranges for flexibility
-PRIMER_PRODUCT_SIZE_RANGE=100-200 201-300
+PRIMER_PRODUCT_SIZE_RANGE=80-100 101-200 201-300 301-400
 
 # Mispriming constraints
 PRIMER_MAX_NS_ACCEPTED=0
