@@ -354,6 +354,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 
                 # Parse primer3 output
                 parsed_output = parse_primer3_output(primer3_output)
+                
+                ## DEBUGGING:
+                print(f"Parsed output for {chrom}:{pos}: {parsed_output}")
+
                 if parsed_output['num_returned'] == 0:
                     logging.warning(f"No primers found for {chrom}:{pos}")
                     continue
