@@ -176,10 +176,11 @@ def main():
                         args.displacement_tol)
     elif args.command == 'Design':
         design_primers(args.input_files, args.reference_fasta, args.output, 
-                  args.settings_file, args.primer3_exe, args.primer3_args,
-                  args.quality_threshold, args.min_high, args.min_medium, 
-                  args.max_low, args.flanking_size, args.max_variants,
-                  args.error_log)
+                        args.settings_file, args.primer3_exe, args.primer3_args,
+                        args.quality_threshold, args.min_high, args.min_medium, 
+                        args.max_low, args.flanking_size, 1,  # Add target_length parameter
+                        args.max_variants, args.error_log)
+
     else:
         parser.print_help()
 
