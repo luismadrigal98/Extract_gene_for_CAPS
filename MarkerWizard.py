@@ -138,8 +138,8 @@ def main():
                                     help='Minimum number of medium reliability variants required')
     design_parser_filtering.add_argument('--max_low', type=int, default=0, 
                                     help='Maximum number of low reliability variants allowed')
-    design_parser_filtering.add_argument('--max_variants', type=int, default=None, 
-                                    help='Maximum number of variants to process per file')
+    design_parser_filtering.add_argument('--max_variants', type=int, default=-9, 
+                                    help='Maximum number of variants to process per file. Default -9 is meant to indicate no limit')
 
     design_parser_sequence = design_parser.add_argument_group("Sequence options")
     design_parser_sequence.add_argument('--flanking_size', type=int, default=150, 
