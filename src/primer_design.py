@@ -333,6 +333,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 # Create primer3 input
                 try:
                     create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, default_settings, temp_input_path)
+                    with open('./test.txt, w') as f:
+                        for line in open(temp_input_path):
+                            f.write(line)
+                    logging.info(f"Primer3 input created at {temp_input_path}")
                 except Exception as e:
                     logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
                     os.unlink(temp_input_path)  # Clean up
