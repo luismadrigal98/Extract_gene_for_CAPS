@@ -12,15 +12,12 @@ appropriate Primer3 parameters, and calls Primer3 to generate primer candidates.
 """
 
 import os
-import sys
 import subprocess
 import pandas as pd
 import logging
 from Bio import SeqIO
 from Bio.Seq import Seq
 import tempfile
-import json
-import re
 from tqdm import tqdm
 
 def extract_sequence(fasta_file, chrom, start, end):
@@ -48,13 +45,14 @@ def extract_sequence(fasta_file, chrom, start, end):
         logging.error(f"Error extracting sequence: {e}")
         return None
 
-def create_primer3_input(sequence, target_pos, settings, output_file):
+def create_primer3_input(name, sequence, target_pos, target_length, settings, output_file):
     """
     Create a Primer3 input file for a given sequence and target position.
     
     Parameters:
+    name(str): Name of the sequence.
     sequence (str): The DNA sequence.
-    target_pos (int): The position of the variant within the sequence (0-based).
+    target_pos (int): The position of the variant within the sequence (0-based). If variant is greater than 1 bp (non a SNP), it is the start of the target.
     settings (dict): Dictionary of Primer3 settings.
     output_file (str): Output file path.
     
@@ -62,10 +60,10 @@ def create_primer3_input(sequence, target_pos, settings, output_file):
     str: Path to the created input file.
     """
     # Calculate target region (1 bp at the variant position)
-    target = f"{target_pos},1"
+    target = f"{target_pos},{target_length}"
     
     with open(output_file, 'w') as f:
-        f.write(f"SEQUENCE_ID=variant\n")
+        f.write(f"SEQUENCE_ID={name}\n")
         f.write(f"SEQUENCE_TEMPLATE={sequence}\n")
         f.write(f"SEQUENCE_TARGET={target}\n")
         
@@ -77,13 +75,13 @@ def create_primer3_input(sequence, target_pos, settings, output_file):
     
     return output_file
 
-def run_primer3(primer3_exe, input_file, settings_file=None, primer3_args=""):
+def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core', settings_file=None, primer3_args=""):
     """
     Run Primer3 on the input file.
     
     Parameters:
-    primer3_exe (str): Path to the Primer3 executable.
     input_file (str): Path to the Primer3 input file.
+    primer3_exe (str): Path to the Primer3 executable.
     settings_file (str, optional): Path to the Primer3 settings file.
     primer3_args (str, optional): Additional Primer3 command line arguments.
     

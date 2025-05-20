@@ -142,13 +142,13 @@ def main():
                                     help='Maximum number of variants to process per file')
 
     design_parser_sequence = design_parser.add_argument_group("Sequence options")
-    design_parser_sequence.add_argument('--flanking_size', type=int, default=200, 
+    design_parser_sequence.add_argument('--flanking_size', type=int, default=150, 
                                     help='Size of flanking region on each side of variant')
 
     design_parser_primer3 = design_parser.add_argument_group("Primer3 arguments")
     design_parser_primer3.add_argument('--primer3_exe', type=str, required=False, 
                                 help='Path to primer3 executable', 
-                                default='primer3_core')
+                                default='~/.conda/envs/salmon/bin/primer3_core')
     design_parser_primer3.add_argument('--primer3_args', type=str, required=False, 
                                 help='Command Line Options for primer3', 
                                 default='--default_version=2 --format_output --strict_tags')
