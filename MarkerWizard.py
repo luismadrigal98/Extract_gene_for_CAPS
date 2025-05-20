@@ -120,14 +120,40 @@ def main():
     design_parser = subparsers.add_parser('Design', help='Design primers for the variants')
 
     design_parser_inout = design_parser.add_argument_group("Input and output files")
-    design_parser_inout.add_argument('--output', '-o',type=str, required=True, help='Output file for the designed primers')
-    design_parser_inout.add_argument('--error_log', '-e', type=str, required=False, help='Error log file for the designed primers')
+    design_parser_inout.add_argument('--input_files', '-i', nargs='+', type=str, required=True, 
+                                help='Input TSV files from screen_variants step')
+    design_parser_inout.add_argument('--reference_fasta', '-r', type=str, required=True,
+                                help='Reference FASTA file containing the sequences')
+    design_parser_inout.add_argument('--output', '-o',type=str, required=True, 
+                                help='Output file for the designed primers')
+    design_parser_inout.add_argument('--error_log', '-e', type=str, required=False, 
+                                help='Error log file for the designed primers')
+
+    design_parser_filtering = design_parser.add_argument_group("Filtering options")
+    design_parser_filtering.add_argument('--quality_threshold', type=str, default='high', choices=['high', 'medium', 'low'],
+                                    help='Minimum quality threshold for variants (high, medium, low)')
+    design_parser_filtering.add_argument('--min_high', type=int, default=3, 
+                                    help='Minimum number of high reliability variants required')
+    design_parser_filtering.add_argument('--min_medium', type=int, default=2, 
+                                    help='Minimum number of medium reliability variants required')
+    design_parser_filtering.add_argument('--max_low', type=int, default=0, 
+                                    help='Maximum number of low reliability variants allowed')
+    design_parser_filtering.add_argument('--max_variants', type=int, default=50, 
+                                    help='Maximum number of variants to process per file')
+
+    design_parser_sequence = design_parser.add_argument_group("Sequence options")
+    design_parser_sequence.add_argument('--flanking_size', type=int, default=200, 
+                                    help='Size of flanking region on each side of variant')
 
     design_parser_primer3 = design_parser.add_argument_group("Primer3 arguments")
-    design_parser_primer3.add_argument('--primer3_exe', type=str, required=False, help='Path to primer3 executable', default = '~/.conda/envs/salmon/bin/primer3_core')
-    design_parser_primer3.add_argument('--primer3_clo', type=str, required=False, help='Command Line Options for primer3', 
-                                    default = '--default_version=2 --format_output --strict_tags')
-    design_parser_primer3.add_argument('--settings_file', type=str, required=True, help='Settings file for primer3')
+    design_parser_primer3.add_argument('--primer3_exe', type=str, required=False, 
+                                help='Path to primer3 executable', 
+                                default='primer3_core')
+    design_parser_primer3.add_argument('--primer3_args', type=str, required=False, 
+                                help='Command Line Options for primer3', 
+                                default='--default_version=2 --format_output --strict_tags')
+    design_parser_primer3.add_argument('--settings_file', type=str, required=False, 
+                                help='Settings file for primer3')
 
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
@@ -149,8 +175,11 @@ def main():
                         args.diff_parental, args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,
                         args.displacement_tol)
     elif args.command == 'Design':
-        # Primer design step based on primer3
-        design_primers()
+        design_primers(args.input_files, args.reference_fasta, args.output, 
+                  args.settings_file, args.primer3_exe, args.primer3_args,
+                  args.quality_threshold, args.min_high, args.min_medium, 
+                  args.max_low, args.flanking_size, args.max_variants,
+                  args.error_log)
     else:
         parser.print_help()
 
