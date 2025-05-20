@@ -243,6 +243,8 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 if '=' in line and line.startswith('PRIMER_'):
                     key, value = line.strip().split('=', 1)
                     default_settings[key] = value
+                print(line)
+                print("I can read the file for sure.")
     
     # List to store all primer results
     all_results = []
