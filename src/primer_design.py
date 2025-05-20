@@ -257,6 +257,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
         try:
             # Read input file
             df = pd.read_csv(input_file, sep='\t', low_memory=False)
+
+            # Ensure POS is numeric for flanking calculations
+            df['POS'] = pd.to_numeric(df['POS'], errors='coerce')
+
             if df.empty:
                 logging.warning(f"Empty file: {input_file}")
                 continue
@@ -294,7 +298,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             
             # Order the variants by QUAL
 
-            #df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
+            df_primer_compliant = df_primer_compliant.sort_values(by='QUAL', ascending=False)
 
             # Limit number of variants
             print("DEBUGGING: TILL HERE WITHOUT A PROBLEM")
