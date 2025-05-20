@@ -218,7 +218,7 @@ def extract_genotype(genotype_field, return_quality=False):
     
     return "./." if not return_quality else ("./.", 0, 0)
 
-def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=20, approach='single', check_parentals = False):
+def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=20, approach='single'):
     """
     Infer ancestry and parental alleles for genetic variants based on F2 segregation patterns.
     Process each ROI separately and calculate both individual variant and contextual group likelihoods.
@@ -272,22 +272,25 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
                     common_parents.add(p)
                 all_parents.add(p)
 
+        # Initialize results list
+        results = []  # Fix: Initialize the results list before using it
+        
         # For each variant
         for idx, variant in roi_variants.iterrows():
             variant_record = {'CHROM': variant['CHROM'], 'POS': variant['POS'],
                             'REF': variant['REF'], 'ALT': variant['ALT']}
             
-            # Create dictionary to store cross-specific data
+            # Store cross-specific data
             cross_data = {}
-            
-            # Store cross-specific allele predictions temporarily
             cross_predictions = {}
             
             # Store confidence values for later weighted averaging
             parent_confidences = {p: [] for p in all_parents}
             parent_alleles = {p: [] for p in all_parents}
+            total_genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
+            total_samples_checked = 0
             
-            # Process each cross separately first
+            # Process each cross - consolidated genotype processing loop
             for cross, samples in f2_groups.items():
                 common_parent, alt_parent = cross.split('_')
                 
@@ -295,22 +298,27 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
                 genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
                 quality_data = {'0/0': [], '0/1': [], '1/1': []}
 
-                # Add to the genotype extraction section
+                # Extract genotype data
                 for sample in samples:
                     if sample in roi_variants.columns:
                         # Get genotype and quality metrics
                         gt, depth, qual = extract_genotype(variant[sample], return_quality=True)
                         genotype_counts[gt] += 1
                         if gt != './.':
-                            quality_data[gt].append((1, depth, qual))  # Count, depth, qual
-
-                # After collecting all genotype counts
+                            quality_data[gt].append((1, depth, qual))
+                
+                # Update total counts
+                for gt, count in genotype_counts.items():
+                    total_genotype_counts[gt] += count
+                total_samples_checked += sum(genotype_counts.values())
+                
+                # Calculate missing ratio
                 total_samples = sum(genotype_counts.values())
                 missing_samples = genotype_counts['./.']
                 missing_ratio = missing_samples / total_samples if total_samples > 0 else 1.0
 
                 # Skip likelihood calculation if too much data is missing
-                if missing_ratio > 0.95:  # You can adjust this threshold
+                if missing_ratio > 0.95:
                     print(f"Skipping variant at {variant['CHROM']}:{variant['POS']} for cross {cross}: {missing_ratio:.2f} missing data")
                     cross_predictions[cross] = {common_parent: "N", alt_parent: "N"}
                     cross_data[cross] = {"confidence": 0, "missing_ratio": missing_ratio}
@@ -318,14 +326,13 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
                     # Calculate average quality metrics for each genotype
                     avg_quality = {}
                     for gt, data in quality_data.items():
-                        if data:  # Only if we have data for this genotype
-                            # Calculate averages from collected (count, depth, qual) tuples
+                        if data:
                             total_depth = sum(d for _, d, _ in data)
                             total_qual = sum(q for _, _, q in data)
                             count = len(data)
                             avg_quality[gt] = (count, total_depth/count if count > 0 else 0, total_qual/count if count > 0 else 0)
                     
-                    # Only calculate inference if we have enough data
+                    # Calculate inference
                     inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
                     cross_predictions[cross] = {
                         common_parent: inference['p1_allele'], 
@@ -341,6 +348,12 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
                     parent_confidences[alt_parent].append((inference['p2_allele'], inference['confidence']))
                     parent_alleles[common_parent].append(inference['p1_allele'])
                     parent_alleles[alt_parent].append(inference['p2_allele'])
+                
+                # Store per-cross counts
+                variant_record[f'{cross}_hom_ref'] = genotype_counts['0/0']
+                variant_record[f'{cross}_het'] = genotype_counts['0/1']
+                variant_record[f'{cross}_hom_alt'] = genotype_counts['1/1']
+                variant_record[f'{cross}_missing'] = genotype_counts['./.']
             
             # Reconcile predictions for common parents (like 664c)
             final_alleles = {}
@@ -372,115 +385,56 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
             for cross, data in cross_data.items():
                 for key, value in data.items():
                     variant_record[f"{cross}_{key}"] = value
-
-            # Before the cross loop, add cumulative counters
-            total_genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
-            total_samples_checked = 0
-
-            # Before processing crosses, create a dict to track alleles per parent
-            parental_alleles = {}
-
-            for cross, samples in f2_groups.items():
-                common_parent, alt_parent = cross.split('_')
-                
-                # Extract genotypes for this variant
-                genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
-                quality_data = {'0/0': [], '0/1': [], '1/1': []}
-
-                # Add to the genotype extraction section
-                for sample in samples:
-                    if sample in roi_variants.columns:
-                        # Get genotype and quality metrics
-                        gt, depth, qual = extract_genotype(variant[sample], return_quality=True)
-                        genotype_counts[gt] += 1
-                        if gt != './.':
-                            quality_data[gt].append((1, depth, qual))  # Count, depth, qual
-
-                # After collecting all genotype counts
-                total_samples = sum(genotype_counts.values())
-                missing_samples = genotype_counts['./.']
-                missing_ratio = missing_samples / total_samples if total_samples > 0 else 1.0
-
-                # Skip likelihood calculation if too much data is missing
-                if missing_ratio > 0.95:  # You can adjust this threshold
-                    print(f"Skipping variant at {variant['CHROM']}:{variant['POS']} for cross {cross}: {missing_ratio:.2f} missing data")
-                    # Store in the parent-specific dictionary instead of overwriting
-                    parental_alleles[common_parent] = "N"
-                    parental_alleles[alt_parent] = "N"
-                else:
-                    # Calculate average quality metrics for each genotype
-                    avg_quality = {}
-                    for gt, data in quality_data.items():
-                        if data:  # Only if we have data for this genotype
-                            # Calculate averages from collected (count, depth, qual) tuples
-                            total_depth = sum(d for _, d, _ in data)
-                            total_qual = sum(q for _, _, q in data)
-                            count = len(data)
-                            avg_quality[gt] = (count, total_depth/count if count > 0 else 0, total_qual/count if count > 0 else 0)
-                    
-                    # Only calculate inference if we have enough data
-                    inference = infer_parental_genotypes(genotype_counts, quality_data=avg_quality)
-                    parental_alleles[common_parent] = inference['p1_allele']
-                    parental_alleles[alt_parent] = inference['p2_allele']
-                    variant_record['likelihood'] = inference['log_likelihood']
-                    variant_record['confidence'] = inference['confidence']
-
-                # Always store genotype counts for reference
-                variant_record[f'hom_ref_count'] = genotype_counts['0/0']
-                variant_record[f'het_count'] = genotype_counts['0/1']
-                variant_record[f'hom_alt_count'] = genotype_counts['1/1']
-                variant_record[f'missing_count'] = genotype_counts['./.']
-                variant_record[f'missing_ratio'] = missing_ratio
-
-                # Update total counts
-                total_genotype_counts['0/0'] += genotype_counts['0/0']
-                total_genotype_counts['0/1'] += genotype_counts['0/1']
-                total_genotype_counts['1/1'] += genotype_counts['1/1'] 
-                total_genotype_counts['./.'] += genotype_counts['./.']
-                total_samples_checked += sum(genotype_counts.values())
-                
-                # Store per-cross counts if needed
-                variant_record[f'{cross}_hom_ref'] = genotype_counts['0/0']
-                # ... other cross-specific fields ...
-                
-            # After the cross loop, transfer all parental alleles to variant_record
-            for parent, allele in parental_alleles.items():
-                variant_record[f"{parent}_allele"] = allele
-
-            # After the cross loop, store total counts
+            
+            # Store total counts
             variant_record[f'hom_ref_count'] = total_genotype_counts['0/0']
             variant_record[f'het_count'] = total_genotype_counts['0/1']
             variant_record[f'hom_alt_count'] = total_genotype_counts['1/1']
             variant_record[f'missing_count'] = total_genotype_counts['./.']
             variant_record[f'missing_ratio'] = total_genotype_counts['./.'] / total_samples_checked if total_samples_checked > 0 else 1.0
-                
+            
+            # Append to results
             results.append(variant_record)
         
-        # Now add contextual analysis
+        # STEP 4: Add context validation 
         results_with_context = []
+        
         for i, result in enumerate(results):
-            # Define the context window (looking at neighboring variants)
-            start_idx = max(0, i - context_window//2)
-            end_idx = min(len(results) - 1, i + context_window//2)
-            context_variants = results[start_idx:end_idx+1]
+            # Make a copy of the result
+            result_with_context = result.copy()
             
-            # Skip the current variant from context
-            context_variants = [v for v in context_variants if v['POS'] != result['POS']]
+            # Define context window - more efficient approach
+            window_size = context_window  # Use the parameter
+            start_idx = max(0, i - window_size//2)
+            end_idx = min(len(results) - 1, i + window_size//2)
             
-            # Calculate group likelihood
-            for parent in set([k.split('_')[0] for k in result.keys() if k.endswith('_allele')]):
-                # Count how many neighboring variants agree with this one
-                parent_allele = result.get(f"{parent}_allele")
-                if parent_allele:
-                    matching = sum(1 for v in context_variants if v.get(f"{parent}_allele") == parent_allele)
-                    total = sum(1 for v in context_variants if f"{parent}_allele" in v)
-                    result[f"{parent}_context_agreement"] = matching/total if total > 0 else None
+            # Check for agreement with surrounding context for each parent
+            for parent in all_parents:
+                parent_allele = result.get(f"{parent}_allele", 'N')
+                
+                if parent_allele != 'N':
+                    # Count matching context variants more efficiently
+                    matches = 0
+                    total = 0
                     
-                    # Flag potential errors
-                    if matching/total < 0.25 and total >= 5:
-                        result[f"{parent}_potential_error"] = True
+                    for j in range(start_idx, end_idx+1):
+                        if j == i:  # Skip current variant
+                            continue
+                            
+                        v = results[j]
+                        if v.get(f"{parent}_allele", 'N') != 'N':
+                            total += 1
+                            if v.get(f"{parent}_allele") == parent_allele:
+                                matches += 1
+                    
+                    if total >= 3:  # Only calculate if enough context
+                        result_with_context[f"{parent}_context_agreement"] = round(matches/total, 2)
+                        
+                        # Flag potential errors
+                        if matches/total < 0.25 and total >= 5:
+                            result_with_context[f"{parent}_potential_error"] = True
             
-            results_with_context.append(result)
+            results_with_context.append(result_with_context)
         
         # Write output for this ROI with organized columns
         roi_output = f"{output}_{roi_name}.tsv"
@@ -507,7 +461,7 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
                 'POS': result['POS'],
                 'REF': result['REF'],
                 'ALT': result['ALT'],
-                'confidence': result['confidence']
+                'confidence': result.get('confidence', None)
             }
             
             # Add all parental allele columns
@@ -520,7 +474,7 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
         # For the simplified output, maintain consistent ordering
         simplified_output = f"{output}_simplified_{roi_name}.tsv"
         simplified_cols = ['CHROM', 'POS', 'REF', 'ALT'] + [col for col in simplified_results[0].keys() 
-                                                            if col not in ['CHROM', 'POS', 'REF', 'ALT', 'confidence']] + ['confidence']
+                                                           if col not in ['CHROM', 'POS', 'REF', 'ALT', 'confidence']] + ['confidence']
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
 
@@ -1002,16 +956,12 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                                 for parent in all_parents]
             
             # Calculate average reliability and map back to categories
-            if reliability_scores:
-                avg_reliability = sum(reliability_scores) / len(reliability_scores)
-                if avg_reliability >= 2.5:
-                    overall_rel = "high"
-                elif avg_reliability >= 1.5:
-                    overall_rel = "medium"
-                elif avg_reliability > 0:
-                    overall_rel = "low"
-                else:
-                    overall_rel = "none"
+            if avg_reliability >= 2.5:
+                overall_rel = "high"
+            elif avg_reliability >= 1.5:
+                overall_rel = "medium"
+            elif avg_reliability > 0:
+                overall_rel = "low"
             else:
                 overall_rel = "none"
                 
