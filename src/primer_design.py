@@ -339,7 +339,9 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     continue
                 
                 # Run primer3
-                primer3_output = run_primer3(input_file=temp_input_path, settings_file=settings_file, primer3_args=primer3_args)
+                # Expand the directory of the executable
+                primer3_exe = os.path.expanduser(primer3_exe)
+                primer3_output = run_primer3(input_file=temp_input_path, primer3_exe=primer3_exe, settings_file=settings_file, primer3_args=primer3_args)
                 os.unlink(temp_input_path)  # Clean up
                 
                 if not primer3_output:
