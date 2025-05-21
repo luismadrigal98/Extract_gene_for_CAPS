@@ -955,7 +955,13 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             reliability_scores = [reliability_values[variant_record.get(f"{parent}_reliability", "none")] 
                                 for parent in all_parents]
             
+            # Calculate the average reliability
+            avg_reliability = sum(reliability_scores) / len(reliability_scores) if reliability_scores else 0
+            
             # Calculate average reliability and map back to categories
+            if avg_reliability >= 2.5:
+                overall_rel = "high"
+            
             if avg_reliability >= 2.5:
                 overall_rel = "high"
             elif avg_reliability >= 1.5:
