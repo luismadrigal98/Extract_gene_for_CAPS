@@ -416,6 +416,11 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                         
                     # Parse the boulder output for further processing
                     parsed_output = parse_primer3_output(boulder_output)
+                    
+                    # Check if primer3 was successful - use boulder_output in this branch
+                    if not boulder_output:
+                        logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
+                        continue
                 else:
                     # Just boulder output
                     primer3_output = primer3_result
@@ -426,10 +431,11 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                             f.write(primer3_output)
                     
                     parsed_output = parse_primer3_output(primer3_output)
-                
-                if not primer3_output:
-                    logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
-                    continue
+                    
+                    # Check if primer3 was successful - use primer3_output in this branch
+                    if not primer3_output:
+                        logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
+                        continue
 
                 if parsed_output['num_returned'] == 0:
                     logging.warning(f"No primers found for {chrom}:{pos}")
