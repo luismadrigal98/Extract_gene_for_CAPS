@@ -155,6 +155,12 @@ def main():
     design_parser_primer3.add_argument('--settings_file', type=str, required=False, 
                                 help='Settings file for primer3')
 
+    design_parser_misc = design_parser.add_argument_group("Miscellaneous options")
+    design_parser_misc.add_argument('--keep_temp', action='store_true', 
+                            help='Keep temporary Primer3 input/output files for inspection')
+    design_parser_misc.add_argument('--temp_dir', type=str, required=False, 
+                            help='Directory to store temporary files (created if not exists)')
+
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
     args = parser.parse_args()
@@ -178,8 +184,8 @@ def main():
         design_primers(args.input_files, args.reference_fasta, args.output, 
                         args.settings_file, args.primer3_exe, args.primer3_args,
                         args.quality_threshold, args.min_high, args.min_medium, 
-                        args.max_low, args.flanking_size, 1,  # Add target_length parameter
-                        args.max_variants, args.error_log)
+                        args.max_low, args.flanking_size, 1,  # target_length parameter
+                        args.max_variants, args.keep_temp, args.temp_dir, args.error_log)
 
     else:
         parser.print_help()
