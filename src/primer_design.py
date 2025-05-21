@@ -75,24 +75,30 @@ def create_primer3_input(name, sequence, target_pos, target_length, settings, ou
     
     return output_file
 
-def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core', settings_file=None, primer3_args=""):
+def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core', settings_file=None, primer3_args="", also_get_formatted=False):
     """
     Run Primer3 on the input file.
     
     Parameters:
-    input_file (str): Path to the Primer3 input file.
-    primer3_exe (str): Path to the Primer3 executable.
-    settings_file (str, optional): Path to the Primer3 settings file.
-    primer3_args (str, optional): Additional Primer3 command line arguments.
+    input_file (str): Path to Primer3 input file
+    primer3_exe (str): Path to primer3_core executable
+    settings_file (str, optional): Path to Primer3 settings file
+    primer3_args (str): Additional arguments for Primer3
+    also_get_formatted (bool): If True, also run with --format_output and return both outputs
     
     Returns:
-    str: Primer3 output as string.
+    str or tuple: If also_get_formatted is False, returns Boulder IO output.
+                 If True, returns (boulder_output, formatted_output) tuple.
     """
+    # First run: Get Boulder IO output (for parsing)
     cmd = [primer3_exe]
     
     # Add command line arguments
     if primer3_args:
-        cmd.extend(primer3_args.split())
+        # Make sure --format_output is not in the arguments
+        args_list = primer3_args.split()
+        args_list = [arg for arg in args_list if arg != '--format_output' and arg != '-format_output']
+        cmd.extend(args_list)
     
     # Add settings file if provided
     if settings_file:
@@ -108,7 +114,29 @@ def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core',
                 capture_output=True,
                 check=True
             )
-        return result.stdout
+        boulder_output = result.stdout
+        
+        # If formatted output is not requested, return just the Boulder IO output
+        if not also_get_formatted:
+            return boulder_output
+            
+        # Second run: Get formatted output (for human reading)
+        format_cmd = cmd.copy()
+        format_cmd.append("--format_output")
+        
+        with open(input_file, 'r') as f:
+            format_result = subprocess.run(
+                format_cmd,
+                stdin=f,
+                text=True,
+                capture_output=True,
+                check=True
+            )
+        formatted_output = format_result.stdout
+        
+        # Return both outputs
+        return (boulder_output, formatted_output)
+        
     except subprocess.CalledProcessError as e:
         logging.error(f"Error running Primer3: {e}")
         logging.error(f"Stderr: {e.stderr}")
@@ -368,23 +396,40 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 # Run primer3
                 # Expand the directory of the executable
                 primer3_exe = os.path.expanduser(primer3_exe)
-                primer3_output = run_primer3(input_file=input_file_path, primer3_exe=primer3_exe, settings_file=settings_file, primer3_args=primer3_args)
                 
-                # Save output if keeping temp files
-                if keep_temp and primer3_output:
+                # Run primer3 with both output formats
+                primer3_result = run_primer3(
+                    input_file=input_file_path, 
+                    primer3_exe=primer3_exe, 
+                    settings_file=settings_file, 
+                    primer3_args=primer3_args,
+                    also_get_formatted=keep_temp  # Use formatted output when keeping temp files
+                )
+
+                # Handle the result based on output format
+                if keep_temp and primer3_result and isinstance(primer3_result, tuple):
+                    boulder_output, formatted_output = primer3_result
+                    
+                    # Save both outputs
                     with open(output_file_path, 'w') as f:
-                        f.write(primer3_output)
-                
-                # Delete temp input file if not keeping
-                if not keep_temp:
-                    os.unlink(input_file_path)
+                        f.write(formatted_output)  # Save human-readable output to file
+                        
+                    # Parse the boulder output for further processing
+                    parsed_output = parse_primer3_output(boulder_output)
+                else:
+                    # Just boulder output
+                    primer3_output = primer3_result
+                    
+                    # Save output if keeping temp files
+                    if keep_temp and primer3_output:
+                        with open(output_file_path, 'w') as f:
+                            f.write(primer3_output)
+                    
+                    parsed_output = parse_primer3_output(primer3_output)
                 
                 if not primer3_output:
                     logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
                     continue
-                
-                # Parse primer3 output
-                parsed_output = parse_primer3_output(primer3_output)
                 
                 ## DEBUGGING:
                 print(f"Parsed output for {chrom}:{pos}: {parsed_output}")
