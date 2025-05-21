@@ -34,7 +34,6 @@ from src.masking_vcf import *
 from src.screen_variants import *
 from src.ancestry_inference import *
 from src.primer_design import *
-from src.validation_utilities import *
 
 # Set up logging
 logging.basicConfig(
@@ -164,25 +163,25 @@ def main():
                             help='Directory to store temporary files (created if not exists)')
 
     # Add a new argument group for primer selection
-    design_parser_contrast = design_parser.add.argument_group("Primer selection options")
+    design_parser_contrast = design_parser.add_argument_group("Primer selection options")
     design_parser_contrast.add_argument('--contrast', action='store_true',
                                     help='Select best primers across all variants')
-    design_parser_contrast.add.argument('--num_primers', type=int, default=50,
+    design_parser_contrast.add_argument('--num_primers', type=int, default=50,
                                     help='Number of primers to select when using --contrast (default: 50)')
-    design_parser_contrast.add.argument('--selection_criteria', type=str, default='balanced',
+    design_parser_contrast.add_argument('--selection_criteria', type=str, default='balanced',
                                     choices=['balanced', 'tm_stability', 'size', 'specificity'],
                                     help='Criteria for selecting best primers: balanced (default), tm_stability, size, specificity')
-    design_parser_contrast.add.argument('--selected_output', type=str,
+    design_parser_contrast.add_argument('--selected_output', type=str,
                                     help='Optional output file for selected primers only (when using --contrast)')
     
     # In silico validation of the designed primers
     validate_parser = subparsers.add_parser('Validate', help='Validate primers by BLASTing against target genomes')
     
     validate_parser.add_argument('--primers', type=str, required=True, help='Input file with designed primers')
-    validate_parser.add.argument('--genomes', type=str, nargs='+', required=True, help='Target genome FASTA files')
-    validate_parser.add.argument('--output', type=str, required=True, help='Output file for validation results')
-    validate_parser.add.argument('--temp_dir', type=str, required=False, help='Directory to store temporary files (created if not exists)')
-    validate_parser.add.argument('--keep_temp', action='store_true', help='Keep temporary files for inspection')
+    validate_parser.add_argument('--genomes', type=str, nargs='+', required=True, help='Target genome FASTA files')
+    validate_parser.add_argument('--output', type=str, required=True, help='Output file for validation results')
+    validate_parser.add_argument('--temp_dir', type=str, required=False, help='Directory to store temporary files (created if not exists)')
+    validate_parser.add_argument('--keep_temp', action='store_true', help='Keep temporary files for inspection')
 
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
@@ -214,7 +213,9 @@ def main():
                         selection_criteria=args.selection_criteria,
                         selected_output=args.selected_output)
     elif args.command == 'Validate':
+        
         from src.validation_utilities import validate_primers
+
         validate_primers(
             primers_file=args.primers, 
             genomes=args.genomes, 
