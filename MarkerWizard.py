@@ -34,6 +34,7 @@ from src.masking_vcf import *
 from src.screen_variants import *
 from src.ancestry_inference import *
 from src.primer_design import *
+from src.validation_utilities import *
 
 # Set up logging
 logging.basicConfig(
@@ -98,7 +99,7 @@ def main():
                             help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
     inference_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
 
-    # Searching for diagnostic markers  <<< Pending to be implemented
+    # Searching for diagnostic markers
 
     screen_parser = subparsers.add_parser('Screen', help='Screen the variants for diagnostic markers')
 
@@ -173,6 +174,15 @@ def main():
                                     help='Criteria for selecting best primers: balanced (default), tm_stability, size, specificity')
     design_parser_contrast.add_argument('--selected_output', type=str,
                                     help='Optional output file for selected primers only (when using --contrast)')
+    
+    # In silico validation of the designed primers
+    validate_parser = subparsers.add_parser('Validate', help='Validate primers by BLASTing against target genomes')
+    
+    validate_parser.add_argument('--primers', type=str, required=True, help='Input file with designed primers')
+    validate_parser.add_argument('--genomes', type=str, nargs='+', required=True, help='Target genome FASTA files')
+    validate_parser.add_argument('--output', type=str, required=True, help='Output file for validation results')
+    validate_parser.add_argument('--temp_dir', type=str, required=False, help='Directory to store temporary files (created if not exists)')
+    validate_parser.add_argument('--keep_temp', action='store_true', help='Keep temporary files for inspection')
 
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
@@ -199,6 +209,14 @@ def main():
                         args.quality_threshold, args.min_high, args.min_medium, 
                         args.max_low, args.flanking_size, 1,  # target_length parameter
                         args.max_variants, args.keep_temp, args.temp_dir, args.error_log)
+    elif args.command == 'Validate':
+        validate_primers(
+            primers_file=args.primers, 
+            genomes=args.genomes, 
+            output_file=args.output,
+            temp_dir=args.temp_dir,
+            keep_temp=args.keep_temp
+        )
 
     else:
         parser.print_help()
