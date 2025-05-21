@@ -1,0 +1,50 @@
+Primer3 File - http://primer3.org
+P3_FILE_TYPE=settings
+
+P3_FILE_ID=Ultra permissive settings for diagnostic marker design
+
+# Basic primer picking parameters
+PRIMER_TASK=generic
+PRIMER_PICK_LEFT_PRIMER=1
+PRIMER_PICK_RIGHT_PRIMER=1
+PRIMER_PICK_INTERNAL_OLIGO=0
+
+# Size constraints - very wide range
+PRIMER_OPT_SIZE=20
+PRIMER_MIN_SIZE=14
+PRIMER_MAX_SIZE=30
+
+# Melting temperature constraints - extremely broad range
+PRIMER_OPT_TM=60.0
+PRIMER_MIN_TM=50.0
+PRIMER_MAX_TM=70.0
+PRIMER_PAIR_MAX_DIFF_TM=10.0
+
+# GC content constraints - relaxed
+PRIMER_MIN_GC=20.0
+PRIMER_OPT_GC_PERCENT=50.0
+PRIMER_MAX_GC=80.0
+PRIMER_GC_CLAMP=0
+
+# Structural constraints - very relaxed
+PRIMER_MAX_SELF_ANY_TH=60.0
+PRIMER_MAX_SELF_END_TH=60.0
+PRIMER_PAIR_MAX_COMPL_ANY_TH=60.0
+PRIMER_PAIR_MAX_COMPL_END_TH=60.0
+PRIMER_MAX_HAIRPIN_TH=60.0
+
+# Product size - very flexible ranges
+PRIMER_PRODUCT_SIZE_RANGE=60-100 101-200 201-300 301-500 501-800 801-1000
+
+# Mispriming constraints - relaxed
+PRIMER_MAX_NS_ACCEPTED=1
+PRIMER_MAX_POLY_X=8
+PRIMER_PAIR_MAX_TEMPLATE_MISPRIMING_TH=60.0
+
+# Stability constraints - relaxed
+PRIMER_MAX_END_STABILITY=12.0
+
+# Output settings
+PRIMER_NUM_RETURN=10
+PRIMER_EXPLAIN_FLAG=1
+=

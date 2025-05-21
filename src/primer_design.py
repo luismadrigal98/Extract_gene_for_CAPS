@@ -184,7 +184,7 @@ def parse_primer3_output(output):
 def design_primers(input_files, reference_fasta, output_file, settings_file=None, 
                     primer3_exe="~/.conda/envs/salmon/bin/primer3_core", primer3_args="", quality_threshold="high", 
                     min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length = 1,
-                    max_variants=50,
+                    max_variants=50, keep_temp=False, temp_dir=None,
                     error_log=None):
     """
     Design primers for variants using Primer3.
@@ -201,8 +201,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     min_medium (int): Minimum number of medium quality variants.
     max_low (int): Maximum number of low quality variants.
     flanking_size (int): Size of flanking region on each side of variant.
-    target_length (int): Length of the target region for primer design (default to 1 when SNPs).
+    target_length (int): Length of the target region for primer design.
     max_variants (int): Maximum number of variants to design primers for.
+    keep_temp (bool): Whether to keep temporary files for inspection.
+    temp_dir (str, optional): Directory to store temporary files (created if not exists).
     error_log (str, optional): Path to error log file.
     
     Returns:
@@ -215,6 +217,17 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
         logging.getLogger().addHandler(error_handler)
     
     logging.info(f"Starting primer design for variants from {len(input_files)} input files")
+    
+    # Create temp directory if keeping files
+    if keep_temp:
+        if temp_dir is None:
+            temp_dir = os.path.join(os.getcwd(), "primer3_temp_files")
+        
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+            logging.info(f"Created temporary directory: {temp_dir}")
+        else:
+            logging.info(f"Using existing temporary directory: {temp_dir}")
     
     # Default primer3 settings
     default_settings = {
@@ -330,23 +343,41 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     logging.error(f"Failed to extract sequence for {chrom}:{pos}")
                     continue
                 
-                # Create temporary input file
-                with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_input:
-                    temp_input_path = temp_input.name
+                # Create a variant-specific directory for temp files if keeping
+                if keep_temp:
+                    variant_dir = os.path.join(temp_dir, f"{chrom}_{pos}")
+                    if not os.path.exists(variant_dir):
+                        os.makedirs(variant_dir)
+                    input_file_path = os.path.join(variant_dir, "primer3_input.txt")
+                    output_file_path = os.path.join(variant_dir, "primer3_output.txt")
+                else:
+                    # Use temporary files that will be deleted
+                    temp_input = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+                    input_file_path = temp_input.name
+                    temp_input.close()
                 
                 # Create primer3 input
                 try:
-                    create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, default_settings, temp_input_path)
+                    create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, default_settings, input_file_path)
                 except Exception as e:
                     logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
-                    os.unlink(temp_input_path)  # Clean up
+                    if not keep_temp:
+                        os.unlink(input_file_path)
                     continue
                 
                 # Run primer3
                 # Expand the directory of the executable
                 primer3_exe = os.path.expanduser(primer3_exe)
-                primer3_output = run_primer3(input_file=temp_input_path, primer3_exe=primer3_exe, settings_file=settings_file, primer3_args=primer3_args)
-                os.unlink(temp_input_path)  # Clean up
+                primer3_output = run_primer3(input_file=input_file_path, primer3_exe=primer3_exe, settings_file=settings_file, primer3_args=primer3_args)
+                
+                # Save output if keeping temp files
+                if keep_temp and primer3_output:
+                    with open(output_file_path, 'w') as f:
+                        f.write(primer3_output)
+                
+                # Delete temp input file if not keeping
+                if not keep_temp:
+                    os.unlink(input_file_path)
                 
                 if not primer3_output:
                     logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
