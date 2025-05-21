@@ -19,6 +19,12 @@ from Bio import SeqIO
 from Bio.Seq import Seq
 import tempfile
 from tqdm import tqdm
+import sys
+
+# Local imports
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
+from primer_contrast import select_best_primers
 
 def extract_sequence(fasta_file, chrom, start, end):
     """
@@ -211,9 +217,9 @@ def parse_primer3_output(output):
 
 def design_primers(input_files, reference_fasta, output_file, settings_file=None, 
                     primer3_exe="~/.conda/envs/salmon/bin/primer3_core", primer3_args="", quality_threshold="high", 
-                    min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length = 1,
-                    max_variants=50, keep_temp=False, temp_dir=None,
-                    error_log=None):
+                    min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length=1,
+                    max_variants=50, keep_temp=False, temp_dir=None, error_log=None,
+                    contrast=False, num_primers=50, selection_criteria="balanced", selected_output=None):
     """
     Design primers for variants using Primer3.
     
@@ -234,6 +240,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     keep_temp (bool): Whether to keep temporary files for inspection.
     temp_dir (str, optional): Directory to store temporary files (created if not exists).
     error_log (str, optional): Path to error log file.
+    contrast (bool): Whether to perform contrast selection of primers.
+    num_primers (int): Number of primers to select.
+    selection_criteria (str): Criteria for selecting primers (e.g., "balanced", "specificity").
+    selected_output (str, optional): Path to output file for selected primers.
     
     Returns:
     int: Number of variants for which primers were successfully designed.
@@ -462,7 +472,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             logging.error(f"Error processing file {input_file}: {e}")
             continue
     
-    # Write results to output file
+    # Write all results to output file
     try:
         with open(output_file, 'w') as f:
             # Write header
@@ -471,7 +481,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             f.write("Right_Primer\tRight_Start\tRight_TM\tRight_GC\t")
             f.write("Product_Size\tPenalty\n")
             
-            # Write primer data
+            # Write primer data for all designs
             for result in all_results:
                 chrom = result['chrom']
                 pos = result['position']
@@ -484,12 +494,37 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     f.write(f"{primer['left']['sequence']}\t{result['region_start'] + primer['left']['start']}\t{primer['left']['tm']}\t{primer['left']['gc_percent']}\t")
                     f.write(f"{primer['right']['sequence']}\t{result['region_start'] + primer['right']['start'] - primer['right']['length'] + 1}\t{primer['right']['tm']}\t{primer['right']['gc_percent']}\t")
                     f.write(f"{primer['product_size']}\t{primer['pair_penalty']}\n")
+        
+        # Post-process and select primers if contrast is enabled
+        if contrast and all_results:
+            logging.info(f"Selecting top {num_primers} primers using '{selection_criteria}' criteria")
+            selected_primers = select_best_primers(all_results, num_primers, selection_criteria)
+            
+            # Write selected primers to specified output file if provided
+            if selected_output and selected_primers:
+                with open(selected_output, 'w') as f:
+                    # Write header with extra column for score
+                    f.write("Rank\tCHROM\tPOS\tREF\tALT\tReliability\tComposite_Score\t")
+                    f.write("Left_Primer\tLeft_Start\tLeft_TM\tLeft_GC\t")
+                    f.write("Right_Primer\tRight_Start\tRight_TM\tRight_GC\t")
+                    f.write("Product_Size\tPenalty\n")
                     
+                    # Write data for selected primers
+                    for rank, result in enumerate(selected_primers, 1):
+                        primer = result['selected_primer']
+                        f.write(f"{rank}\t{result['chrom']}\t{result['position']}\t{result['ref']}\t{result['alt']}\t")
+                        f.write(f"{result['reliability']}\t{result['composite_score']:.4f}\t")
+                        f.write(f"{primer['left']['sequence']}\t{result['region_start'] + primer['left']['start']}\t{primer['left']['tm']}\t{primer['left']['gc_percent']}\t")
+                        f.write(f"{primer['right']['sequence']}\t{result['region_start'] + primer['right']['start'] - primer['right']['length'] + 1}\t{primer['right']['tm']}\t{primer['right']['gc_percent']}\t")
+                        f.write(f"{primer['product_size']}\t{primer['pair_penalty']}\n")
+                
+                logging.info(f"Selected {len(selected_primers)} primers written to {selected_output}")
+        
         if successful_designs > 0:
             logging.info(f"Successfully designed primers for {successful_designs} variants out of {sum(len(pd.read_csv(file, sep='\t')) for file in input_files)} total variants")
             logging.info(f"Results written to {output_file}")
         else:
-            logging.warning("No primers were successfully designed. Try again with different parameters. :) ")
+            logging.warning("No primers were successfully designed. Try again with different parameters.")
     except Exception as e:
         logging.error(f"Error writing output file: {e}")
     

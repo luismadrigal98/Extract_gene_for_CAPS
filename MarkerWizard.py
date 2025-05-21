@@ -162,6 +162,18 @@ def main():
     design_parser_misc.add_argument('--temp_dir', type=str, required=False, 
                             help='Directory to store temporary files (created if not exists)')
 
+    # Add a new argument group for primer selection
+    design_parser_contrast = design_parser.add_argument_group("Primer selection options")
+    design_parser_contrast.add_argument('--contrast', action='store_true',
+                                    help='Select best primers across all variants')
+    design_parser_contrast.add_argument('--num_primers', type=int, default=50,
+                                    help='Number of primers to select when using --contrast (default: 50)')
+    design_parser_contrast.add_argument('--selection_criteria', type=str, default='balanced',
+                                    choices=['balanced', 'tm_stability', 'size', 'specificity'],
+                                    help='Criteria for selecting best primers: balanced (default), tm_stability, size, specificity')
+    design_parser_contrast.add_argument('--selected_output', type=str,
+                                    help='Optional output file for selected primers only (when using --contrast)')
+
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
     args = parser.parse_args()
