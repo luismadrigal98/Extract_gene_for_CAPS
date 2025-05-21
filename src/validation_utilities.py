@@ -7,8 +7,6 @@ This script will contain utility functions for validating the action of primers 
 
 """
 
-from Bio.Blast import NCBICommandline
-from Bio.Blast.Applications import NcbiblastnCommandline
 from Bio.Blast import NCBIXML
 import pandas as pd
 import logging
