@@ -80,6 +80,7 @@ def main():
     masking_parser.add_argument('--output', type=str, required=True, help='Output file for the screened variants. This is a vcf file with the variants that are in the ROI list and are in genic regions.')
     masking_parser.add_argument('--only_biallelic', action='store_true', help='Only keep biallelic variants. This is going to be the default option, but you can change it if you want to keep all the variants.')
     masking_parser.add_argument('--min_qual', type=float, required=False, help='Minimum quality score for the variants to be considered. Default is 20.', default=20)
+    masking_parser.add_argument('--filter_indels', action='store_true', help='Filter out indels. This is going to be the default option, but you can change it if you want to keep all the variants.')
 
     # Determine ancestry from the F2 data
     # Given that those F2 are the closest ones to the actual plants employed in the experiment, we are going to try to infer the alleles from each of the parental lines.
@@ -168,7 +169,7 @@ def main():
         remap_variants(args.current_ref, args.new_ref, args.ROI_list, args.output, args.minimap2, args.minimap2_opts, args.samtools_exe,
                         args.temp_dir, args.keep)
     elif args.command == 'Mask':
-        mask_variants(args.vcf, args.gff3, args.ROI_list, args.output, args.only_biallelic, args.min_qual)
+        mask_variants(args.vcf, args.gff3, args.ROI_list, args.output, args.only_biallelic, args.min_qual, args.filter_indels)
     elif args.command == 'Infer':
         if args.approach == 'multiple':
             infer_ancestry_multiple(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.context)

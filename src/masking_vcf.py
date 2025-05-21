@@ -67,7 +67,7 @@ def read_vcf(path):
         logger.error(f"Error reading VCF file: {e}", exc_info=True)
         raise
 
-def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True, min_quality=0):
+def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True, min_quality=0, filter_indels=False):
     """
     Mask the variants in the VCF file based on the GFF3 file and ROI list.
     
@@ -78,6 +78,7 @@ def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True, min_quality=
     output (str): Path to the output VCF file.
     only_biallelic (bool): If True, only biallelic variants will be preserved.
     min_quality (int): Minimum quality score for variants to be included.
+    filter_indels (bool): If True, indels will be filtered out.
     
     Returns:
     None
@@ -159,6 +160,14 @@ def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True, min_quality=
             final_df = final_df[final_df['ALT'].str.contains(',') == False]
             biallelic_count = len(final_df)
             logger.info(f"Filtered to {biallelic_count} biallelic variants")
+        
+        # Filter out indels if specified
+        if filter_indels:
+            logger.info("Filtering out indels")
+            indel_count_before = len(final_df)
+            final_df = final_df[(final_df['REF'].str.len() == 1) & (final_df['ALT'].str.len() == 1)]
+            indel_count_after = len(final_df)
+            logger.info(f"Filtered out {indel_count_before - indel_count_after} indels")
         
         logger.info(f"Final result: {final_count} variants in genic regions " +
                     f"({final_count/roi_filtered_count:.2%} of ROI variants, " +
