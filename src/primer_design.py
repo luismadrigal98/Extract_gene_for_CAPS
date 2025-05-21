@@ -430,9 +430,6 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 if not primer3_output:
                     logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
                     continue
-                
-                ## DEBUGGING:
-                print(f"Parsed output for {chrom}:{pos}: {parsed_output}")
 
                 if parsed_output['num_returned'] == 0:
                     logging.warning(f"No primers found for {chrom}:{pos}")
