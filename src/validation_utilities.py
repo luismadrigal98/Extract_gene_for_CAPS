@@ -80,59 +80,44 @@ def read_blast_results(blast_output, db_name):
     
     Parameters:
     blast_output (str): Path to the BLAST output XML file.
-    db_name (str): Name of the BLAST database.
+    db_name (str): Name of the BLAST database (used to track which genome produced the hits).
     
     Returns:
-    list: Parsed BLAST results.
+    list: Parsed BLAST hits with strand information.
     """
+    logger.info(f"Reading BLAST results from {blast_output} (database: {db_name})")
     
-    from Bio.Blast import NCBIXML
-    
-    logger.info(f"Reading BLAST results from {blast_output}")
-    
+    hits = []
     with open(blast_output) as result_handle:
         blast_records = NCBIXML.parse(result_handle)
-        results = {}
-        results['raw_out'] = []
         for blast_record in blast_records:
             for alignment in blast_record.alignments:
                 for hsp in alignment.hsps:
-                    results['raw_out'].append({
-                        'query': blast_record.query,
+                    # Determine strand orientation based on subject coordinates
+                    is_forward = hsp.sbjct_start < hsp.sbjct_end
+                    strand = 'plus' if is_forward else 'minus'
+                    
+                    # Extract query info (is it left or right primer?)
+                    query_id = blast_record.query
+                    
+                    # Store hit with all necessary information
+                    hits.append({
+                        'query': query_id,
                         'hit_id': alignment.hit_id,
                         'hit_def': alignment.hit_def,
                         'e_value': hsp.expect,
                         'identity': hsp.identities,
-                        'length': hsp.align_length
+                        'align_length': hsp.align_length,
+                        'strand': strand,
+                        'sbjct_start': hsp.sbjct_start,
+                        'sbjct_end': hsp.sbjct_end,
+                        'genome': os.path.basename(db_name),  # Track which genome this hit is from
+                        'is_left': 'left' in query_id.lower(),
+                        'is_right': 'right' in query_id.lower()
                     })
     
-    # Extract the start and end positions of the primers for future extraction of in silico amplicon
-    for i, result in enumerate(results['raw_out']):
-        if 'primer' in result['query']:
-            start = int(result['query'].split('_')[1])
-            end = start + result['length']
-            results['raw_out'][i]['start'] = start
-            results['raw_out'][i]['end'] = end
-    
-    # Infer the amplicon coordinates
-    # The amplicon is located between the end of the left primer and the start of the right primer
-
-    for i, result in enumerate(results['raw_out']):
-        if 'left' in result['query']:
-            results['raw_out'][i]['amplicon_start'] = result['end']
-        elif 'right' in result['query']:
-            results['raw_out'][i]['amplicon_end'] = result['start']
-
-    amplicon_coordinates = []
-    for i, result in enumerate(results['raw_out']):
-        if 'amplicon_start' in result and 'amplicon_end' in result:
-            amplicon_coordinates.append({
-                'amplicon_start': result['amplicon_start'],
-                'amplicon_end': result['amplicon_end']
-            })
-
-    logger.info(f"Parsed {len(results)} BLAST results")
-    return amplicon_coordinates
+    logger.info(f"Parsed {len(hits)} BLAST hits from {os.path.basename(db_name)}")
+    return hits
 
 def extract_amplicon_sequences(amplicon_coordinates, fasta_file):
     """
@@ -265,8 +250,8 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                 blast_primers(right_fasta, db_path, right_out)
                 
                 # Parse results
-                left_hits = read_blast_results(left_out)
-                right_hits = read_blast_results(right_out)
+                left_hits = read_blast_results(left_out, db_path)
+                right_hits = read_blast_results(right_out, db_path)
                 
                 # Check if primers are specific (one hit per primer)
                 if len(left_hits) == 1 and len(right_hits) == 1:
@@ -275,12 +260,24 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                     
                     # Check if they're on the same chromosome
                     if left_hit['hit_id'] == right_hit['hit_id']:
-                        # Determine amplicon coordinates based on primer orientations
-                        # For simplicity, let's assume left primer binds to forward strand
-                        # and right primer binds to reverse strand
-                        if left_hit['strand'] == 'plus' and right_hit['strand'] == 'minus':
-                            amplicon_start = left_hit['sbjct_end'] + 1  # After left primer
-                            amplicon_end = right_hit['sbjct_end'] + 1   # Before right primer
+                        # Check orientation - for proper PCR, we need:
+                        # left primer on + strand AND right primer on - strand
+                        # OR left primer on - strand AND right primer on + strand
+                        if (left_hit['strand'] == 'plus' and right_hit['strand'] == 'minus') or \
+                           (left_hit['strand'] == 'minus' and right_hit['strand'] == 'plus'):
+                            
+                            # Determine amplicon coordinates based on strand
+                            if left_hit['strand'] == 'plus':
+                                amplicon_start = left_hit['sbjct_end']  # End of left primer binding
+                                amplicon_end = right_hit['sbjct_start'] # Start of right primer binding
+                            else:
+                                # Reversed orientation
+                                amplicon_start = right_hit['sbjct_end']  # End of right primer binding
+                                amplicon_end = left_hit['sbjct_start']   # Start of left primer binding
+                            
+                            # Make sure amplicon_start < amplicon_end
+                            if amplicon_start > amplicon_end:
+                                amplicon_start, amplicon_end = amplicon_end, amplicon_start
                             
                             # Extract the amplicon sequence
                             with open(genome_file, 'r') as genome_handle:
