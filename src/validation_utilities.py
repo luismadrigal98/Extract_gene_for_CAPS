@@ -23,31 +23,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def create_blast_db(fasta_file, db_name, mkblastdb_path='~/.conda/envs/salmon/bin/makeblastdb'):
-    """
-    Create a BLAST database from a given FASTA file.
+def create_blast_db(fasta_file, db_name):
+    """Create a BLAST database from a FASTA file"""
+    logger.info(f"Creating BLAST database for {fasta_file}")
+    cmd = ["makeblastdb", "-in", fasta_file, "-dbtype", "nucl", "-out", db_name]
     
-    Parameters:
-    fasta_file (str): Path to the FASTA file.
-    db_name (str): Name for the BLAST database.
-    
-    Returns:
-    None
-    """
-
-    logger.info(f"Creating BLAST database from {fasta_file} with name {db_name}")
-    
-    # Command to create BLAST database
-    command = f"{mkblastdb_path} -in {fasta_file} -dbtype nucl -out {db_name}"
-    
-    # Execute the command
-    try:
-        subprocess.run(command, shell=True, check=True)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error creating BLAST database: {e}")
-        raise RuntimeError(f"Failed to create BLAST database: {e}")
-    
-    logger.info(f"BLAST database {db_name} created successfully.")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error(f"Error creating BLAST database: {result.stderr}")
+        raise RuntimeError(f"makeblastdb failed with exit code {result.returncode}")
+        
+    logger.info(f"Created BLAST database at {db_name}")
 
 def write_primers_as_fasta(primers, output_file):
     """
@@ -69,28 +55,26 @@ def write_primers_as_fasta(primers, output_file):
     
     logger.info(f"Primers written to {output_file} successfully.")
 
-def blast_primers(query_fasta, db_name, output_file):
-    """
-    Perform BLAST search for the given primers against a specified database.
+def blast_primers(primer_fasta, db_path, output_file, evalue=10, task="blastn-short"):
+    """Run BLAST to find primer binding sites"""
+    logger.info(f"BLASTing primers against {db_path}")
     
-    Parameters:
-    query_fasta (str): Path to the FASTA file containing primer sequences.
-    db_name (str): Name of the BLAST database.
-    output_file (str): Path to the output BLAST results file.
+    cmd = [
+        "blastn", 
+        "-query", primer_fasta,
+        "-db", db_path,
+        "-out", output_file,
+        "-outfmt", "5",  # XML output
+        "-evalue", str(evalue),
+        "-task", task
+    ]
     
-    Returns:
-    None
-    """
-    
-    cline = NcbiblastnCommandline(query=query_fasta, db=db_name, out=output_file, evalue=0.001, outfmt=5)
-
-    logger.info(f"Running BLAST search with command: {cline}")
-
-    stdout, stderr = cline()
-    if stderr:
-        logger.error(f"BLAST search error: {stderr}")
-        raise RuntimeError(f"BLAST search failed: {stderr}")
-    logger.info(f"BLAST search completed successfully. Results saved to {output_file}")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logger.error(f"Error running BLAST: {result.stderr}")
+        raise RuntimeError(f"blastn failed with exit code {result.returncode}")
+        
+    logger.info(f"BLAST results written to {output_file}")
 
 def read_blast_results(blast_output, db_name):
     """

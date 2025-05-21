@@ -209,8 +209,10 @@ def main():
                         args.quality_threshold, args.min_high, args.min_medium, 
                         args.max_low, args.flanking_size, 1,  # target_length parameter
                         args.max_variants, args.keep_temp, args.temp_dir, args.error_log,
-                        args.num_primers, args.selection_criteria, args.contrast,
-                        args.selected_output)
+                        contrast=args.contrast,  # CORRECT ORDER WITH NAMED PARAMS
+                        num_primers=args.num_primers,
+                        selection_criteria=args.selection_criteria,
+                        selected_output=args.selected_output)
     elif args.command == 'Validate':
         validate_primers(
             primers_file=args.primers, 
