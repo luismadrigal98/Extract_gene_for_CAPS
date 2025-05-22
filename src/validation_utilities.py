@@ -53,8 +53,8 @@ def write_primers_as_fasta(primers, output_file):
     
     logger.info(f"Primers written to {output_file} successfully.")
 
-def blast_primers(primer_fasta, db_path, output_file, evalue=10, task="blastn-short"):
-    """Run BLAST to find primer binding sites"""
+def blast_primers(primer_fasta, db_path, output_file, evalue=0.1, task="blastn-short", word_size=7):
+    """Run BLAST to find primer binding sites with more stringent parameters"""
     logger.info(f"BLASTing primers against {db_path}")
     
     cmd = [
@@ -63,8 +63,10 @@ def blast_primers(primer_fasta, db_path, output_file, evalue=10, task="blastn-sh
         "-db", db_path,
         "-out", output_file,
         "-outfmt", "5",  # XML output
-        "-evalue", str(evalue),
-        "-task", task
+        "-evalue", str(evalue),  # More stringent E-value
+        "-task", task,
+        "-word_size", str(word_size),  # Word size appropriate for primers
+        "-dust", "no"  # Don't filter low complexity regions
     ]
     
     result = subprocess.run(cmd, capture_output=True, text=True)
