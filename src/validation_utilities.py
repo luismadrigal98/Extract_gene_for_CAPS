@@ -360,9 +360,21 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                             'reason': 'different_chromosomes'
                         }
                 else:
+                    # Determine the correct reason
+                    if len(left_hits) == 0:
+                        reason = "no_hit_for_left_primer"
+                    elif len(right_hits) == 0:
+                        reason = "no_hit_for_right_primer" 
+                    elif len(left_hits) > 1:
+                        reason = "multiple_hits_for_left_primer"
+                    elif len(right_hits) > 1:
+                        reason = "multiple_hits_for_right_primer"
+                    else:
+                        reason = "unexpected_issue"
+                        
                     primer_result['genomes'][genome_name] = {
                         'specific': False,
-                        'reason': 'multiple_hits',
+                        'reason': reason,
                         'left_hits': len(left_hits),
                         'right_hits': len(right_hits)
                     }
