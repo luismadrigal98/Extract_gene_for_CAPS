@@ -12,6 +12,7 @@ import pandas as pd
 import logging
 import os
 import subprocess
+import xml.parsers.expat
 
 # Set up logging
 logging.basicConfig(
@@ -77,70 +78,80 @@ def blast_primers(primer_fasta, db_path, output_file, evalue=0.1, task="blastn-s
         
     logger.info(f"BLAST results written to {output_file}")
 
-def read_blast_results(blast_output, db_name, min_identity_pct=90, min_coverage=80, check_3prime=True):
+def read_blast_results(blast_output, db_name=None, min_identity_pct=90, min_coverage=80, check_3prime=True):
     """
     Read and parse BLAST results, filtering for high-quality primer binding sites only.
-    
-    Parameters:
-    blast_output (str): Path to BLAST output XML file
-    db_name (str): Database name for tracking
-    min_identity_pct (float): Minimum percent identity for valid binding
-    min_coverage (float): Minimum percent of primer covered by alignment
-    check_3prime (bool): Whether to check 3' end matches specifically
     """
     logger.info(f"Reading BLAST results from {blast_output}")
     
-    hits = []
-    with open(blast_output) as result_handle:
-        blast_records = NCBIXML.parse(result_handle)
-        for blast_record in blast_records:
-            query_length = blast_record.query_length
-            query_name = blast_record.query
-            
-            # Filter for high-quality hits only
-            quality_hits = []
-            
-            for alignment in blast_record.alignments:
-                for hsp in alignment.hsps:
-                    # Calculate identity percentage and coverage
-                    identity_pct = (hsp.identities / hsp.align_length) * 100
-                    coverage = (hsp.align_length / query_length) * 100
-                    
-                    # Check if 3' end of primer matches (last 5bp)
-                    three_prime_ok = True
-                    if check_3prime:
-                        if "left" in query_name.lower():
-                            # For left primer, check forward matching
-                            three_prime_ok = (hsp.query[-5:] == hsp.sbjct[-5:])
-                        else:
-                            # For right primer, check reverse matching
-                            three_prime_ok = (hsp.query[-5:] == hsp.sbjct[-5:])
-                    
-                    # Filter for quality hits only
-                    if (identity_pct >= min_identity_pct and 
-                        coverage >= min_coverage and
-                        hsp.expect <= 0.1 and
-                        three_prime_ok):
-                        
-                        is_forward = hsp.sbjct_start < hsp.sbjct_end
-                        strand = 'plus' if is_forward else 'minus'
-                        
-                        quality_hits.append({
-                            'query': query_name,
-                            'hit_id': alignment.hit_id,
-                            'e_value': hsp.expect,
-                            'identity_pct': identity_pct,
-                            'coverage': coverage, 
-                            'strand': strand,
-                            'sbjct_start': hsp.sbjct_start,
-                            'sbjct_end': hsp.sbjct_end,
-                            'genome': os.path.basename(db_name)
-                        })
-            
-            logger.info(f"Found {len(quality_hits)} high-quality binding sites out of {sum(1 for _ in alignment.hsps for alignment in blast_record.alignments)} total hits")
-            hits = quality_hits
+    # Check if file exists and is not empty
+    if not os.path.exists(blast_output) or os.path.getsize(blast_output) == 0:
+        logger.warning(f"BLAST output file {blast_output} is empty or does not exist")
+        return []
     
-    return hits
+    hits = []
+    try:
+        with open(blast_output) as result_handle:
+            try:
+                blast_records = list(NCBIXML.parse(result_handle))
+                
+                if not blast_records:
+                    logger.warning(f"No BLAST records found in {blast_output}")
+                    return []
+                
+                total_hits = 0
+                quality_hits = []
+                
+                for blast_record in blast_records:
+                    query_length = blast_record.query_length
+                    query_name = blast_record.query
+                    
+                    for alignment in blast_record.alignments:
+                        for hsp in alignment.hsps:
+                            total_hits += 1
+                            
+                            # Calculate identity percentage and coverage
+                            identity_pct = (hsp.identities / hsp.align_length) * 100
+                            coverage = (hsp.align_length / query_length) * 100
+                            
+                            # Check if 3' end of primer matches (last 5bp)
+                            three_prime_ok = True
+                            if check_3prime:
+                                if "left" in query_name.lower():
+                                    three_prime_ok = (hsp.query[-5:] == hsp.sbjct[-5:])
+                                else:
+                                    three_prime_ok = (hsp.query[-5:] == hsp.sbjct[-5:])
+                            
+                            # Filter for quality hits only
+                            if (identity_pct >= min_identity_pct and 
+                                coverage >= min_coverage and
+                                hsp.expect <= 0.1 and
+                                three_prime_ok):
+                                
+                                is_forward = hsp.sbjct_start < hsp.sbjct_end
+                                strand = 'plus' if is_forward else 'minus'
+                                
+                                quality_hits.append({
+                                    'query': query_name,
+                                    'hit_id': alignment.hit_id,
+                                    'e_value': hsp.expect,
+                                    'identity_pct': identity_pct,
+                                    'coverage': coverage, 
+                                    'strand': strand,
+                                    'sbjct_start': hsp.sbjct_start,
+                                    'sbjct_end': hsp.sbjct_end,
+                                    'genome': os.path.basename(db_name) if db_name else "unknown"
+                                })
+                
+                logger.info(f"Found {len(quality_hits)} high-quality binding sites out of {total_hits} total hits")
+                return quality_hits
+                
+            except (xml.parsers.expat.ExpatError, ValueError) as e:
+                logger.error(f"XML parsing error in {blast_output}: {e}")
+                return []
+    except Exception as e:
+        logger.error(f"Error processing BLAST output file {blast_output}: {e}")
+        return []
 
 def extract_amplicon_sequences(amplicon_coordinates, fasta_file):
     """
