@@ -430,11 +430,14 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
         for primer_id in sorted(validation_results.keys()):
             primer_results = validation_results[primer_id]
             for i, result in enumerate(primer_results):
-                # Use index to distinguish between primer pairs
-                display_id = f"{primer_id}_design{i+1}" if len(primer_results) > 1 else primer_id
+                if len(primer_results) > 1:
+                    display_id = f"{primer_id}_design{i+1}"
+                else:
+                    display_id = primer_id
+                
                 f.write(f"## Primer {display_id}\n")
                 f.write(f"- Left: {result['left_primer']}\n")
-                f.write(f"- Right: {result['right_primer']}\n\n")
+                f.write(f"- Right: {result['right_primer']}\n")
                 
                 f.write("| Genome | Specific | Amplicon Length | Notes |\n")
                 f.write("|--------|----------|----------------|-------|\n")
