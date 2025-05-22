@@ -34,7 +34,7 @@ PRIMER_PAIR_MAX_COMPL_END_TH=50.0
 PRIMER_MAX_HAIRPIN_TH=45.0
 
 # Product size - wider range to accommodate your flanking region
-PRIMER_PRODUCT_SIZE_RANGE=150-250 251-350 351-450 451-600 601-800
+PRIMER_PRODUCT_SIZE_RANGE=150-250 251-350 351-450
 
 # Mispriming constraints - slightly relaxed
 PRIMER_MAX_NS_ACCEPTED=0
