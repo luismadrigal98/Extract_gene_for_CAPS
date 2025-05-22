@@ -195,24 +195,10 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                      min_identity_pct=90.0, min_coverage=80.0, check_3prime=True):
     """
     Validate primers by BLASTing against target genomes and analyzing potential amplicons.
-    
-    Parameters:
-    primers_file (str): File with designed primers
-    genomes (list): List of target genome FASTA files
-    output_file (str): Output file for validation results
-    temp_dir (str, optional): Directory to store temporary files
-    keep_temp (bool): Whether to keep temporary files
-    evalue (float): E-value threshold for BLAST
-    task (str): BLAST task
-    word_size (int): Word size for BLAST
-    min_identity_pct (float): Minimum percent identity for valid binding
-    min_coverage (float): Minimum percent of primer covered by alignment
-    check_3prime (bool): Whether to check 3' end matches specifically
     """
     import tempfile
     import shutil
     import pandas as pd
-    from Bio import SeqIO
     
     # Create temp directory
     if temp_dir is None:
@@ -227,8 +213,8 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     # Load primers from file
     primers_df = pd.read_csv(primers_file, sep='\t')
     
-    # Group by variant to get primer pairs
-    validation_results = {}  # Initialize as dictionary, not list
+    # Process each primer pair individually (not with groupby)
+    validation_results = []
     all_amplicons_fasta = os.path.join(os.path.dirname(output_file), "all_amplicons.fasta")
     all_amplicons_file = open(all_amplicons_fasta, 'w')
     
@@ -239,18 +225,22 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
         create_blast_db(genome_file, db_name)
         genome_dbs[genome_file] = db_name
     
-    # Process each primer pair
-    for (chrom, pos, ref, alt), group in primers_df.groupby(['CHROM', 'POS', 'REF', 'ALT']):
-        if len(group) == 0:
-            continue
-            
-        primer_id = f"{chrom}_{pos}_{ref}_{alt}"
-        logger.info(f"Processing primer pair for {primer_id}")
+    # Process each primer individually (not grouped)
+    for idx, row in primers_df.iterrows():
+        # Extract primer information
+        chrom = row['CHROM']
+        pos = row['POS']
+        ref = row['REF']
+        alt = row['ALT']
+        
+        # Create a unique identifier with index
+        primer_id = f"{chrom}_{pos}_{ref}_{alt}_id{idx}"
+        
+        logger.info(f"Processing primer pair: {primer_id}")
         
         # Use the first primer pair
-        first_row = group.iloc[0]
-        left_primer = first_row['Left_Primer']
-        right_primer = first_row['Right_Primer']
+        left_primer = row['Left_Primer']
+        right_primer = row['Right_Primer']
         
         # Create primer-specific directory
         primer_dir = os.path.join(temp_dir, primer_id)
@@ -407,14 +397,7 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                             'right_orientation': right_hit['strand']
                         }
         
-        # Add this check to ensure validation_results stays a dictionary
-        if not isinstance(validation_results, dict):
-            validation_results = {}  # Reset to dictionary if it somehow became something else
-        
-        # Now safely add the primer result
-        if primer_id not in validation_results:
-            validation_results[primer_id] = []
-        validation_results[primer_id].append(primer_result)
+        validation_results.append(primer_result)
     
     # Close master amplicon file
     all_amplicons_file.close()
@@ -423,40 +406,26 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     with open(output_file, 'w') as f:
         f.write("# Primer Validation Results\n\n")
         
-        # Ensure validation_results is a dictionary before iterating
-        if not isinstance(validation_results, dict):
-            validation_results = {}
-        
-        for primer_id in sorted(validation_results.keys()):
-            primer_results = validation_results[primer_id]
-            for i, result in enumerate(primer_results):
-                if len(primer_results) > 1:
-                    display_id = f"{primer_id}_design{i+1}"
+        for result in validation_results:
+            f.write(f"## Primer {result['primer_id']}\n")
+            f.write(f"- Left: {result['left_primer']}\n")
+            f.write(f"- Right: {result['right_primer']}\n\n")
+            
+            f.write("| Genome | Specific | Amplicon Length | Notes |\n")
+            f.write("|--------|----------|----------------|-------|\n")
+            
+            for genome_name, details in result['genomes'].items():
+                specific = "Yes" if details.get('specific', False) else "No"
+                amplicon_length = details.get('amplicon_length', "N/A")
+                
+                if details.get('specific', False):
+                    notes = f"Valid amplicon {amplicon_length}bp"
                 else:
-                    display_id = primer_id
+                    notes = details.get('reason', "Unknown issue")
                 
-                f.write(f"## Primer {display_id}\n")
-                f.write(f"- Left: {result['left_primer']}\n")
-                f.write(f"- Right: {result['right_primer']}\n")
-                
-                f.write("| Genome | Specific | Amplicon Length | Notes |\n")
-                f.write("|--------|----------|----------------|-------|\n")
-                
-                # Ensure all genomes are present in sorted order
-                for genome_name in sorted(result['genomes'].keys()):
-                    details = result['genomes'][genome_name]
-                    specific = "Yes" if details.get('specific', False) else "No"
-                    amplicon_length = details.get('amplicon_length', "N/A")
-                    
-                    # Generate detailed notes
-                    if details.get('specific', False):
-                        notes = f"Valid amplicon {amplicon_length}bp"
-                    else:
-                        notes = details.get('reason', "Unknown issue")
-                    
-                    f.write(f"| {genome_name} | {specific} | {amplicon_length} | {notes} |\n")
-                
-                f.write("\n")
+                f.write(f"| {genome_name} | {specific} | {amplicon_length} | {notes} |\n")
+            
+            f.write("\n")
     
     logger.info(f"Validation results written to {output_file}")
     logger.info(f"All amplicon sequences written to {all_amplicons_fasta}")
