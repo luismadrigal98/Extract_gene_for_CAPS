@@ -85,7 +85,7 @@ def create_primer3_input(name, sequence, target_pos, target_length, settings, ou
     
     return output_file
 
-def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core', settings_file=None, primer3_args="", also_get_formatted=False):
+def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core', settings_file=None, primer3_args="", also_get_formatted=False, timeout=300):
     """
     Run Primer3 on the input file.
     
@@ -95,6 +95,7 @@ def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core',
     settings_file (str, optional): Path to Primer3 settings file
     primer3_args (str): Additional arguments for Primer3
     also_get_formatted (bool): If True, also run with --format_output and return both outputs
+    timeout (int): Maximum time in seconds to wait for primer3 execution
     
     Returns:
     str or tuple: If also_get_formatted is False, returns Boulder IO output.
@@ -122,7 +123,8 @@ def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core',
                 stdin=f,
                 text=True,
                 capture_output=True,
-                check=True
+                check=True,
+                timeout=timeout  # Add timeout parameter
             )
         boulder_output = result.stdout
         
@@ -140,13 +142,18 @@ def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core',
                 stdin=f,
                 text=True,
                 capture_output=True,
-                check=True
+                check=True,
+                timeout=timeout  # Add timeout to formatted run too
             )
         formatted_output = format_result.stdout
         
         # Return both outputs
         return (boulder_output, formatted_output)
         
+    except subprocess.TimeoutExpired:
+        variant_id = os.path.basename(input_file).replace("primer3_input.txt", "")
+        logging.error(f"Primer3 process timed out after {timeout} seconds for variant {variant_id}")
+        return None
     except subprocess.CalledProcessError as e:
         logging.error(f"Error running Primer3: {e}")
         logging.error(f"Stderr: {e.stderr}")
@@ -223,7 +230,7 @@ def process_variant_for_parallel(args):
     """Process a single variant for primer design (parallelizable version)"""
     # Unpack arguments
     variant_data, reference_fasta, flanking_size, target_length, default_settings, \
-    keep_temp, temp_dir, primer3_exe, settings_file, primer3_args, process_id = args
+    keep_temp, temp_dir, primer3_exe, settings_file, primer3_args, process_id, timeout = args
     
     # Unpack variant data
     idx, variant = variant_data
@@ -285,7 +292,8 @@ def process_variant_for_parallel(args):
         primer3_exe=primer3_exe_path, 
         settings_file=settings_file, 
         primer3_args=primer3_args,
-        also_get_formatted=keep_temp  # Use formatted output when keeping temp files
+        also_get_formatted=keep_temp,  # Use formatted output when keeping temp files
+        timeout=timeout  # Use the provided timeout
     )
 
     # Handle the result based on output format
@@ -338,7 +346,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length=1,
                     max_variants=50, keep_temp=False, temp_dir=None, error_log=None,
                     contrast=False, num_primers=50, selection_criteria="balanced", selected_output=None,
-                    parallel=False, num_workers=None):
+                    parallel=False, num_workers=None, timeout=300):
     """
     Design primers for variants using Primer3.
     
@@ -365,6 +373,7 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     selected_output (str, optional): Path to output file for selected primers.
     parallel (bool): Whether to use parallel processing for primer design.
     num_workers (int, optional): Number of worker processes to use. Default: CPU count-1
+    timeout (int): Maximum time in seconds to wait for primer3 execution. Default: 300
     
     Returns:
     int: Number of variants for which primers were successfully designed.
@@ -492,7 +501,8 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             primer3_exe=primer3_exe, 
             settings_file=settings_file, 
             primer3_args=primer3_args,
-            also_get_formatted=keep_temp  # Use formatted output when keeping temp files
+            also_get_formatted=keep_temp,  # Use formatted output when keeping temp files
+            timeout=timeout  # Pass the timeout parameter
         )
 
         # Handle the result based on output format
@@ -610,8 +620,8 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
                 process_ids = [random_id() for _ in range(len(variant_items))]
                 
-                # Process in smaller batches to show progress
-                batch_size = min(50, len(variant_items))
+                # Use batch size equal to number of workers for optimal resource use
+                batch_size = num_workers
                 
                 with tqdm(total=len(variant_items), desc=f"Designing primers for {os.path.basename(input_file)} (parallel)") as pbar:
                     for i in range(0, len(variant_items), batch_size):
@@ -622,26 +632,31 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                         batch_args = []
                         for j, variant_item in enumerate(batch_variants):
                             args = (variant_item, reference_fasta, flanking_size, target_length, 
-                                   default_settings, keep_temp, temp_dir, primer3_exe, settings_file, 
-                                   primer3_args, batch_process_ids[j])
+                                    default_settings, keep_temp, temp_dir, primer3_exe, settings_file, 
+                                    primer3_args, batch_process_ids[j], timeout)  # Add timeout here
                             batch_args.append(args)
                         
                         # Process this batch
                         with ProcessPoolExecutor(max_workers=num_workers) as executor:
                             # Submit jobs for this batch
                             future_to_args = {executor.submit(process_variant_for_parallel, args): args 
-                                             for args in batch_args}
+                                                for args in batch_args}
                             
                             # Process results as they complete
                             for future in as_completed(future_to_args):
-                                result = future.result()
-                                if result:
-                                    results.append(result)
-                                    successful_designs += 1
-                                pbar.update(1)
-                
-                # Add results to all_results
-                all_results.extend(results)
+                                try:
+                                    result = future.result(timeout=600)  # Add overall future timeout too
+                                    if result:
+                                        results.append(result)
+                                        successful_designs += 1
+                                except concurrent.futures.TimeoutError:
+                                    # Handle case where entire future times out
+                                    logging.error(f"Future execution timed out after 600 seconds")
+                                except Exception as e:
+                                    # Handle other exceptions
+                                    logging.error(f"Error in parallel processing: {str(e)}")
+                                finally:
+                                    pbar.update(1)
             else:
                 # Original sequential processing
                 for idx, variant in tqdm(df_primer_compliant.iterrows(), 

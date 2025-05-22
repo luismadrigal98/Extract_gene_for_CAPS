@@ -155,6 +155,8 @@ def main():
                                 default='--default_version=2 --format_output --strict_tags')
     design_parser_primer3.add_argument('--settings_file', type=str, required=False, 
                                 help='Settings file for primer3')
+    design_parser_primer3.add_argument('--timeout', type=int, default=300,
+                                help='Maximum time in seconds to wait for primer3 execution (default: 300)')
 
     design_parser_misc = design_parser.add_argument_group("Miscellaneous options")
     design_parser_misc.add_argument('--keep_temp', action='store_true', 
@@ -248,7 +250,8 @@ def main():
             selection_criteria=args.selection_criteria,
             selected_output=args.selected_output,
             parallel=args.parallel,
-            num_workers=args.workers
+            num_workers=args.workers,
+            timeout=args.timeout  # Added timeout parameter
         )
     elif args.command == 'Validate':
         
