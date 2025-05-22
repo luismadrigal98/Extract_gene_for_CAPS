@@ -219,6 +219,81 @@ def parse_primer3_output(output):
         'errors': result.get('PRIMER_ERROR', '')
     }
 
+def process_variant_for_parallel(args):
+    """Process a single variant for primer design (parallelizable version)"""
+    # Unpack arguments
+    variant_data, reference_fasta, flanking_size, target_length, default_settings, \
+    keep_temp, temp_dir, primer3_exe, settings_file, primer3_args, process_id = args
+    
+    # Unpack variant data
+    idx, variant = variant_data
+    
+    # Use unique ID for temp files in parallel mode
+    variant_id = f"{process_id}_{idx}" if process_id else str(idx)
+    
+    # Extract the variant info
+    chrom = variant['CHROM']
+    pos = variant['POS']
+    ref = variant['REF']
+    alt = variant['ALT']
+    variant_id_str = f"{chrom}_{pos}_{ref}_{alt}"
+    
+    # Calculate region to extract
+    start = max(1, pos - flanking_size)
+    end = pos + flanking_size
+    
+    # Calculate the target position
+    target_pos = pos - start
+
+    # Extract sequence
+    sequence = extract_sequence(reference_fasta, chrom, start, end)
+    if not sequence:
+        logging.error(f"Failed to extract sequence for {chrom}:{pos}")
+        return None
+    
+    # Rest of your process_variant function...
+    # Create a variant-specific directory for temp files if keeping
+    if keep_temp:
+        variant_dir = os.path.join(temp_dir, f"{chrom}_{pos}")
+        if not os.path.exists(variant_dir):
+            os.makedirs(variant_dir)
+        input_file_path = os.path.join(variant_dir, "primer3_input.txt")
+        output_file_path = os.path.join(variant_dir, "primer3_output.txt")
+    else:
+        # Use temporary files that will be deleted
+        temp_input = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+        input_file_path = temp_input.name
+        temp_input.close()
+    
+    # Create primer3 input
+    try:
+        create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, 
+                            default_settings, input_file_path)
+    except Exception as e:
+        logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
+        if not keep_temp:
+            os.unlink(input_file_path)
+        return None
+    
+    # Run primer3
+    # Expand the directory of the executable
+    primer3_exe_path = os.path.expanduser(primer3_exe)
+    
+    # Run primer3 with both output formats
+    primer3_result = run_primer3(
+        input_file=input_file_path, 
+        primer3_exe=primer3_exe_path, 
+        settings_file=settings_file, 
+        primer3_args=primer3_args,
+        also_get_formatted=keep_temp  # Use formatted output when keeping temp files
+    )
+
+    # Process primer3 results...
+    # [Copy the rest of your original process_variant function here]
+    
+    # Return the result object with primer data
+    return result
+
 def design_primers(input_files, reference_fasta, output_file, settings_file=None, 
                     primer3_exe="~/.conda/envs/salmon/bin/primer3_core", primer3_args="", quality_threshold="high", 
                     min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length=1,
@@ -496,11 +571,17 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
                     process_ids = [random_id() for _ in range(len(variant_items))]
                     
+                    # Create argument tuples for each variant
+                    all_args = []
+                    for i, variant_item in enumerate(variant_items):
+                        args = (variant_item, reference_fasta, flanking_size, target_length, 
+                                default_settings, keep_temp, temp_dir, primer3_exe, settings_file, 
+                                primer3_args, process_ids[i])
+                        all_args.append(args)
+                    
                     # Submit all variants for parallel processing
                     future_results = list(tqdm(
-                        executor.map(process_variant, 
-                                    variant_items, 
-                                    process_ids),
+                        executor.map(process_variant_for_parallel, all_args),
                         desc=f"Designing primers for {os.path.basename(input_file)} (parallel)",
                         total=len(df_primer_compliant),
                         disable=logging.getLogger().level > logging.INFO
@@ -508,12 +589,12 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     
                     # Collect results
                     for result in future_results:
-                        if result:  # Check if not None
+                        if result:
                             results.append(result)
                             successful_designs += 1
                     
-                # Transfer parallel results to all_results
-                all_results.extend(results)
+                    # Transfer parallel results to all_results
+                    all_results.extend(results)
             else:
                 # Original sequential processing
                 for idx, variant in tqdm(df_primer_compliant.iterrows(), 
