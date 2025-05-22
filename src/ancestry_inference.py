@@ -1077,7 +1077,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
 
 def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
     """
-    Extract F2 genotypes from VCF file and output as a table with consistency metrics
+    Extract F2 genotypes and analyze consistency WITHIN each F2 plant across all markers in ROIs
     
     Args:
         vcf: Path to VCF file
@@ -1129,92 +1129,117 @@ def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
             logging.info(f"No variants found in ROI {roi_name}")
             continue
             
-        # Create output dataframe
-        results = []
+        # Initialize genotype tallies for each F2 plant
+        f2_genotype_consistency = {}
+        for f2_id in f2_samples:
+            f2_genotype_consistency[f2_id] = {
+                'genotype_counts': {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0},
+                'low_depth_calls': 0,
+                'total_markers': 0,
+                'valid_markers': 0,
+                'cross': f"{f2_samples[f2_id][0]}_{f2_samples[f2_id][1]}"
+            }
         
-        # Process each variant
+        # Process each variant for each F2
         for _, variant in roi_variants.iterrows():
-            record = {
-                'CHROM': variant['CHROM'],
-                'POS': variant['POS'],
-                'REF': variant['REF'],
-                'ALT': variant['ALT']
+            for f2_id in f2_samples:
+                if f2_id in variant:
+                    gt, depth, _ = extract_genotype(variant[f2_id], return_quality=True)
+                    f2_genotype_consistency[f2_id]['total_markers'] += 1
+                    
+                    # Mark low-depth calls
+                    if depth < min_depth:
+                        f2_genotype_consistency[f2_id]['low_depth_calls'] += 1
+                        f2_genotype_consistency[f2_id]['genotype_counts']['./.'] += 1
+                    else:
+                        f2_genotype_consistency[f2_id]['genotype_counts'][gt] += 1
+                        if gt != './.':
+                            f2_genotype_consistency[f2_id]['valid_markers'] += 1
+        
+        # Calculate consistency metrics for each F2
+        f2_results = []
+        for f2_id, data in f2_genotype_consistency.items():
+            if data['total_markers'] == 0:
+                continue  # Skip F2s with no data
+                
+            result = {
+                'F2_ID': f2_id,
+                'Cross': data['cross'],
+                'Total_Markers': data['total_markers'],
+                'Valid_Markers': data['valid_markers'],
+                'Missing_Data': data['genotype_counts']['./.'],
+                'Low_Depth_Calls': data['low_depth_calls']
             }
             
-            # Collect genotype data across all F2s
-            genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
-            depth_data = {'0/0': [], '0/1': [], '1/1': [], './.': []}
-            f2_genotypes = {}
-            
-            for f2_id in f2_samples:
-                if f2_id in roi_variants.columns:
-                    gt, depth, qual = extract_genotype(variant[f2_id], return_quality=True)
-                    
-                    # Mark low-depth calls as unreliable by converting them to missing
-                    if depth < min_depth:
-                        logging.debug(f"Low depth call ({depth}) for {f2_id} at {variant['CHROM']}:{variant['POS']}, treating as missing")
-                        gt = "./."
-                        record[f2_id] = f"{gt}*"  # Add marker to indicate this was filtered for low depth
-                    else:
-                        record[f2_id] = gt
-                    
-                    # Record genotype with quality info
-                    genotype_counts[gt] += 1
-                    depth_data[gt].append(depth)
-                    f2_genotypes[f2_id] = (gt, depth, qual)
-            
-            # Add a new field to track percentage of low-depth calls
-            record['pct_low_depth'] = round(100 * sum(1 for _, (_, d, _) in f2_genotypes.items() if d < min_depth) / len(f2_genotypes), 1) if f2_genotypes else 0.0
-            
-            # Calculate consistency metrics
-            total_valid = sum([genotype_counts['0/0'], genotype_counts['0/1'], genotype_counts['1/1']])
+            # Calculate percentages
+            total_valid = data['valid_markers']
             if total_valid > 0:
-                record['pct_hom_ref'] = round(100 * genotype_counts['0/0'] / total_valid, 1)
-                record['pct_het'] = round(100 * genotype_counts['0/1'] / total_valid, 1)
-                record['pct_hom_alt'] = round(100 * genotype_counts['1/1'] / total_valid, 1)
-                record['pct_missing'] = round(100 * genotype_counts['./.'] / len(f2_genotypes), 1) if f2_genotypes else 100.0
+                result['Pct_HomRef'] = round(100 * data['genotype_counts']['0/0'] / total_valid, 1)
+                result['Pct_Het'] = round(100 * data['genotype_counts']['0/1'] / total_valid, 1)
+                result['Pct_HomAlt'] = round(100 * data['genotype_counts']['1/1'] / total_valid, 1)
                 
-                # Calculate consistency (most common genotype percentage)
-                max_pct = max(record['pct_hom_ref'], record['pct_het'], record['pct_hom_alt'])
-                record['consistency'] = max_pct
+                # Calculate consistency as percentage of most common genotype
+                max_pct = max(result['Pct_HomRef'], result['Pct_Het'], result['Pct_HomAlt'])
+                result['Consistency'] = max_pct
                 
-                # Calculate per-cross consistency
-                for cross, f2_ids in f2_by_cross.items():
-                    cross_gts = {gt: 0 for gt in ['0/0', '0/1', '1/1', './.']}
-                    for f2_id in f2_ids:
-                        if f2_id in f2_genotypes:
-                            cross_gts[f2_genotypes[f2_id][0]] += 1
-                    
-                    total_cross_valid = sum([cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1']])
-                    if total_cross_valid > 0:
-                        max_count = max(cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1'])
-                        record[f"consistency_{cross}"] = round(100 * max_count / total_cross_valid, 1)
-                    else:
-                        record[f"consistency_{cross}"] = 0
-                        
-                # Calculate average depths
-                for gt in depth_data:
-                    if depth_data[gt]:
-                        record[f"avg_depth_{gt}"] = round(sum(depth_data[gt]) / len(depth_data[gt]), 1)
+                # Determine predominant genotype
+                if max_pct == result['Pct_HomRef']:
+                    result['Predominant_Genotype'] = 'HomRef (0/0)'
+                elif max_pct == result['Pct_Het']:
+                    result['Predominant_Genotype'] = 'Het (0/1)'
+                else:
+                    result['Predominant_Genotype'] = 'HomAlt (1/1)'
+                
+                # Data quality metrics
+                result['Pct_Missing'] = round(100 * data['genotype_counts']['./.'] / data['total_markers'], 1)
+                result['Pct_LowDepth'] = round(100 * data['low_depth_calls'] / data['total_markers'], 1)
             else:
-                record['pct_hom_ref'] = 0
-                record['pct_het'] = 0
-                record['pct_hom_alt'] = 0
-                record['pct_missing'] = 100.0
-                record['consistency'] = 0
+                result['Pct_HomRef'] = 0
+                result['Pct_Het'] = 0
+                result['Pct_HomAlt'] = 0
+                result['Consistency'] = 0
+                result['Predominant_Genotype'] = 'No valid data'
+                result['Pct_Missing'] = 100.0 if data['total_markers'] > 0 else 0
+                result['Pct_LowDepth'] = 100.0 if data['total_markers'] > 0 else 0
             
-            results.append(record)
+            f2_results.append(result)
         
         # Write output
-        if results:
-            # Main output with all data
-            output_file = f"{output}_{roi_name}_f2_genotypes.tsv"
-            pd.DataFrame(results).to_csv(output_file, sep='\t', index=False)
-            logging.info(f"Wrote F2 genotypes to {output_file}")
+        if f2_results:
+            # Main F2 consistency report
+            output_file = f"{output}_{roi_name}_f2_consistency.tsv"
+            pd.DataFrame(f2_results).to_csv(output_file, sep='\t', index=False)
+            logging.info(f"Wrote F2 consistency report to {output_file}")
             
-            # Summary output with consistency stats
-            summary_df = pd.DataFrame(results)[['CHROM', 'POS', 'REF', 'ALT', 'consistency', 
-                                                    'pct_hom_ref', 'pct_het', 'pct_hom_alt', 'pct_missing']]
-            summary_file = f"{output}_{roi_name}_consistency_summary.tsv"
-            summary_df.to_csv(summary_file, sep='\t', index=False)
-            logging.info(f"Wrote consistency summary to {summary_file}")
+            # Also generate cross summary
+            cross_summary = []
+            for cross, f2_ids in f2_by_cross.items():
+                cross_f2s = [r for r in f2_results if r['F2_ID'] in f2_ids]
+                if not cross_f2s:
+                    continue
+                    
+                # Get stats for this cross
+                cross_data = {
+                    'Cross': cross,
+                    'Num_F2s': len(cross_f2s),
+                    'Avg_Consistency': round(sum(r['Consistency'] for r in cross_f2s) / len(cross_f2s), 1),
+                    'Min_Consistency': min(r['Consistency'] for r in cross_f2s),
+                    'Max_Consistency': max(r['Consistency'] for r in cross_f2s)
+                }
+                
+                # Count genotype patterns
+                genotype_counts = {'HomRef (0/0)': 0, 'Het (0/1)': 0, 'HomAlt (1/1)': 0, 'No valid data': 0}
+                for r in cross_f2s:
+                    genotype_counts[r['Predominant_Genotype']] += 1
+                    
+                for gt, count in genotype_counts.items():
+                    cross_data[f'Count_{gt}'] = count
+                    cross_data[f'Pct_{gt}'] = round(100 * count / len(cross_f2s), 1)
+                    
+                cross_summary.append(cross_data)
+                
+            # Write cross summary
+            if cross_summary:
+                summary_file = f"{output}_{roi_name}_cross_summary.tsv"
+                pd.DataFrame(cross_summary).to_csv(summary_file, sep='\t', index=False)
+                logging.info(f"Wrote cross summary to {summary_file}")
