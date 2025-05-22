@@ -11,7 +11,7 @@ PRIMER_PICK_INTERNAL_OLIGO=0
 
 # Size constraints - moderate range to increase success rate
 PRIMER_OPT_SIZE=24
-PRIMER_MIN_SIZE=15
+PRIMER_MIN_SIZE=20
 PRIMER_MAX_SIZE=30
 
 # Melting temperature constraints - narrow range for consistent PCR
