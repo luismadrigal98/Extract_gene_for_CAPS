@@ -273,15 +273,19 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                 genome_name = os.path.basename(genome_file)
                 db_path = genome_dbs[genome_file]
                 
+                # Define the output file paths for BLAST results
+                left_out = os.path.join(primer_dir, f"{genome_name}_left_blast.xml")
+                right_out = os.path.join(primer_dir, f"{genome_name}_right_blast.xml")
+                
                 # BLAST both primers
                 blast_primers(left_fasta, db_path, left_out, evalue=evalue, task=task, word_size=word_size)
                 blast_primers(right_fasta, db_path, right_out, evalue=evalue, task=task, word_size=word_size)
                 
                 # Parse results
                 left_hits = read_blast_results(left_out, db_path, 
-                                               min_identity_pct=min_identity_pct, 
-                                               min_coverage=min_coverage, 
-                                               check_3prime=check_3prime)
+                                                min_identity_pct=min_identity_pct, 
+                                                min_coverage=min_coverage, 
+                                                check_3prime=check_3prime)
                 right_hits = read_blast_results(right_out, db_path,
                                                 min_identity_pct=min_identity_pct, 
                                                 min_coverage=min_coverage, 
