@@ -63,10 +63,11 @@ def blast_primers(primer_fasta, db_path, output_file, evalue=0.1, task="blastn-s
         "-db", db_path,
         "-out", output_file,
         "-outfmt", "5",  # XML output
-        "-evalue", str(evalue),  # More stringent E-value
+        "-evalue", str(evalue),  # Ensure this is used correctly
         "-task", task,
         "-word_size", str(word_size),  # Word size appropriate for primers
-        "-dust", "no"  # Don't filter low complexity regions
+        "-dust", "no",   # Don't filter low complexity regions
+        "-max_target_seqs", "20"  # Limit maximum targets to reduce processing
     ]
     
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -76,49 +77,69 @@ def blast_primers(primer_fasta, db_path, output_file, evalue=0.1, task="blastn-s
         
     logger.info(f"BLAST results written to {output_file}")
 
-def read_blast_results(blast_output, db_name):
+def read_blast_results(blast_output, db_name, min_identity_pct=90, min_coverage=80, check_3prime=True):
     """
-    Read and parse BLAST results from an XML file.
+    Read and parse BLAST results, filtering for high-quality primer binding sites only.
     
     Parameters:
-    blast_output (str): Path to the BLAST output XML file.
-    db_name (str): Name of the BLAST database (used to track which genome produced the hits).
-    
-    Returns:
-    list: Parsed BLAST hits with strand information.
+    blast_output (str): Path to BLAST output XML file
+    db_name (str): Database name for tracking
+    min_identity_pct (float): Minimum percent identity for valid binding
+    min_coverage (float): Minimum percent of primer covered by alignment
+    check_3prime (bool): Whether to check 3' end matches specifically
     """
-    logger.info(f"Reading BLAST results from {blast_output} (database: {db_name})")
+    logger.info(f"Reading BLAST results from {blast_output}")
     
     hits = []
     with open(blast_output) as result_handle:
         blast_records = NCBIXML.parse(result_handle)
         for blast_record in blast_records:
+            query_length = blast_record.query_length
+            query_name = blast_record.query
+            
+            # Filter for high-quality hits only
+            quality_hits = []
+            
             for alignment in blast_record.alignments:
                 for hsp in alignment.hsps:
-                    # Determine strand orientation based on subject coordinates
-                    is_forward = hsp.sbjct_start < hsp.sbjct_end
-                    strand = 'plus' if is_forward else 'minus'
+                    # Calculate identity percentage and coverage
+                    identity_pct = (hsp.identities / hsp.align_length) * 100
+                    coverage = (hsp.align_length / query_length) * 100
                     
-                    # Extract query info (is it left or right primer?)
-                    query_id = blast_record.query
+                    # Check if 3' end of primer matches (last 5bp)
+                    three_prime_ok = True
+                    if check_3prime:
+                        if "left" in query_name.lower():
+                            # For left primer, check forward matching
+                            three_prime_ok = (hsp.query[-5:] == hsp.sbjct[-5:])
+                        else:
+                            # For right primer, check reverse matching
+                            three_prime_ok = (hsp.query[-5:] == hsp.sbjct[-5:])
                     
-                    # Store hit with all necessary information
-                    hits.append({
-                        'query': query_id,
-                        'hit_id': alignment.hit_id,
-                        'hit_def': alignment.hit_def,
-                        'e_value': hsp.expect,
-                        'identity': hsp.identities,
-                        'align_length': hsp.align_length,
-                        'strand': strand,
-                        'sbjct_start': hsp.sbjct_start,
-                        'sbjct_end': hsp.sbjct_end,
-                        'genome': os.path.basename(db_name),  # Track which genome this hit is from
-                        'is_left': 'left' in query_id.lower(),
-                        'is_right': 'right' in query_id.lower()
-                    })
+                    # Filter for quality hits only
+                    if (identity_pct >= min_identity_pct and 
+                        coverage >= min_coverage and
+                        hsp.expect <= 0.1 and
+                        three_prime_ok):
+                        
+                        is_forward = hsp.sbjct_start < hsp.sbjct_end
+                        strand = 'plus' if is_forward else 'minus'
+                        
+                        quality_hits.append({
+                            'query': query_name,
+                            'hit_id': alignment.hit_id,
+                            'e_value': hsp.expect,
+                            'identity_pct': identity_pct,
+                            'coverage': coverage, 
+                            'strand': strand,
+                            'sbjct_start': hsp.sbjct_start,
+                            'sbjct_end': hsp.sbjct_end,
+                            'genome': os.path.basename(db_name)
+                        })
+            
+            logger.info(f"Found {len(quality_hits)} high-quality binding sites out of {sum(1 for _ in alignment.hsps for alignment in blast_record.alignments)} total hits")
+            hits = quality_hits
     
-    logger.info(f"Parsed {len(hits)} BLAST hits from {os.path.basename(db_name)}")
     return hits
 
 def extract_amplicon_sequences(amplicon_coordinates, fasta_file):
