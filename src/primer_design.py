@@ -603,37 +603,45 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     df_primer_compliant = df_primer_compliant.head(max_variants)
             
             if parallel:
-                # Process in parallel
+                # Process in parallel using batches with as_completed
+                from concurrent.futures import as_completed
+                
                 results = []
-                with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                    # Generate process IDs for each variant to avoid file conflicts
-                    variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
-                    process_ids = [random_id() for _ in range(len(variant_items))]
-                    
-                    # Create argument tuples for each variant
-                    all_args = []
-                    for i, variant_item in enumerate(variant_items):
-                        args = (variant_item, reference_fasta, flanking_size, target_length, 
-                                default_settings, keep_temp, temp_dir, primer3_exe, settings_file, 
-                                primer3_args, process_ids[i])
-                        all_args.append(args)
-                    
-                    # Submit all variants for parallel processing
-                    future_results = list(tqdm(
-                        executor.map(process_variant_for_parallel, all_args),
-                        desc=f"Designing primers for {os.path.basename(input_file)} (parallel)",
-                        total=len(df_primer_compliant),
-                        disable=logging.getLogger().level > logging.INFO
-                    ))
-                    
-                    # Collect results
-                    for result in future_results:
-                        if result:
-                            results.append(result)
-                            successful_designs += 1
-                    
-                    # Transfer parallel results to all_results
-                    all_results.extend(results)
+                variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
+                process_ids = [random_id() for _ in range(len(variant_items))]
+                
+                # Process in smaller batches to show progress
+                batch_size = min(50, len(variant_items))
+                
+                with tqdm(total=len(variant_items), desc=f"Designing primers for {os.path.basename(input_file)} (parallel)") as pbar:
+                    for i in range(0, len(variant_items), batch_size):
+                        batch_variants = variant_items[i:i+batch_size]
+                        batch_process_ids = process_ids[i:i+batch_size]
+                        
+                        # Create args for this batch
+                        batch_args = []
+                        for j, variant_item in enumerate(batch_variants):
+                            args = (variant_item, reference_fasta, flanking_size, target_length, 
+                                   default_settings, keep_temp, temp_dir, primer3_exe, settings_file, 
+                                   primer3_args, batch_process_ids[j])
+                            batch_args.append(args)
+                        
+                        # Process this batch
+                        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                            # Submit jobs for this batch
+                            future_to_args = {executor.submit(process_variant_for_parallel, args): args 
+                                             for args in batch_args}
+                            
+                            # Process results as they complete
+                            for future in as_completed(future_to_args):
+                                result = future.result()
+                                if result:
+                                    results.append(result)
+                                    successful_designs += 1
+                                pbar.update(1)
+                
+                # Add results to all_results
+                all_results.extend(results)
             else:
                 # Original sequential processing
                 for idx, variant in tqdm(df_primer_compliant.iterrows(), 
