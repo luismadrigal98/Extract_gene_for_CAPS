@@ -215,8 +215,11 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     
     # Process each primer pair individually (not with groupby)
     validation_results = []
+    
+    # Ensure we're creating a fresh file
     all_amplicons_fasta = os.path.join(os.path.dirname(output_file), "all_amplicons.fasta")
-    all_amplicons_file = open(all_amplicons_fasta, 'w')
+    with open(all_amplicons_fasta, 'w') as f:
+        f.write("# Amplicons from validated primers\n")  # Create an empty file first
     
     # Create BLAST databases for each genome
     genome_dbs = {}
@@ -371,16 +374,39 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                         amplicon_end = max(left_hit['sbjct_start'], right_hit['sbjct_end'])
                         amplicon_size = amplicon_end - amplicon_start
                     
+                    # Fix the amplicon extraction part
                     if is_valid_orientation:
                         # Extract amplicon from genome file
-                        from Bio import SeqIO
+                        found_record = False
+                        amplicon_seq = None
+                        
                         for record in SeqIO.parse(genome_file, "fasta"):
-                            if record.id == left_hit['hit_id']:
-                                amplicon_seq = str(record.seq[amplicon_start-1:amplicon_end])
-                                # Write to amplicon files
-                                primer_amplicons.write(f">{primer_id}_{genome_name}\n{amplicon_seq}\n")
-                                all_amplicons_file.write(f">{primer_id}_{genome_name}\n{amplicon_seq}\n")
-                                break
+                            # Match the first part of hit_id (before any whitespace)
+                            hit_id_base = left_hit['hit_id'].split()[0]
+                            record_id_base = record.id.split()[0]
+                            
+                            if record_id_base == hit_id_base:
+                                found_record = True
+                                logger.info(f"Found matching record for hit ID {hit_id_base}")
+                                
+                                try:
+                                    # Subtract 1 from start for 0-based indexing
+                                    amplicon_seq = str(record.seq[max(0, amplicon_start-1):amplicon_end])
+                                    
+                                    # Log the sequence length for debugging
+                                    logger.info(f"Extracted amplicon sequence of length {len(amplicon_seq)} from {amplicon_start-1} to {amplicon_end}")
+                                    
+                                    # Write to amplicon files with clear description
+                                    primer_amplicons.write(f">{primer_id}_{genome_name}|{amplicon_start}-{amplicon_end}\n{amplicon_seq}\n")
+                                    with open(all_amplicons_fasta, 'a') as all_amplicons_file:  # Open in append mode
+                                        all_amplicons_file.write(f">{primer_id}_{genome_name}|{amplicon_start}-{amplicon_end}\n{amplicon_seq}\n")
+                                    break
+                                except Exception as e:
+                                    logger.error(f"Error extracting amplicon sequence: {e}")
+                                    logger.error(f"Record length: {len(record.seq)}, attempting to slice from {amplicon_start-1} to {amplicon_end}")
+                        
+                        if not found_record:
+                            logger.warning(f"No matching record found for hit ID {left_hit['hit_id']} - check FASTA headers")
                         
                         primer_result['genomes'][genome_name] = {
                             'specific': True,
@@ -399,8 +425,11 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
         
         validation_results.append(primer_result)
     
-    # Close master amplicon file
-    all_amplicons_file.close()
+    # After all processing, verify the file has content
+    if os.path.exists(all_amplicons_fasta) and os.path.getsize(all_amplicons_fasta) > 0:
+        logger.info(f"All amplicon sequences written to {all_amplicons_fasta}")
+    else:
+        logger.warning(f"No amplicon sequences were written to {all_amplicons_fasta}")
     
     # Write validation summary
     with open(output_file, 'w') as f:
@@ -428,7 +457,6 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
             f.write("\n")
     
     logger.info(f"Validation results written to {output_file}")
-    logger.info(f"All amplicon sequences written to {all_amplicons_fasta}")
     
     # Clean up temp directory if needed
     if not keep_temp and created_temp:
