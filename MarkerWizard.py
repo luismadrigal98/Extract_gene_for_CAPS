@@ -183,6 +183,25 @@ def main():
     validate_parser.add_argument('--temp_dir', type=str, required=False, help='Directory to store temporary files (created if not exists)')
     validate_parser.add_argument('--keep_temp', action='store_true', help='Keep temporary files for inspection')
 
+    # BLAST search parameters
+    validate_blast_settings = validate_parser.add_argument_group("BLAST search settings")
+    validate_blast_settings.add_argument('--evalue', type=float, default=0.1, 
+                                   help='E-value threshold for BLAST (default: 0.1)')
+    validate_blast_settings.add_argument('--task', type=str, default='blastn-short',
+                                   choices=['blastn', 'blastn-short', 'dc-megablast', 'megablast'],
+                                   help='BLAST task type (default: blastn-short)')
+    validate_blast_settings.add_argument('--word_size', type=int, default=7,
+                                   help='Word size for BLAST search (default: 7)')
+
+    # Hit filtering parameters
+    validate_filter_settings = validate_parser.add_argument_group("BLAST hit filtering settings")
+    validate_filter_settings.add_argument('--min_identity_pct', type=float, default=90.0,
+                                    help='Minimum percent identity for valid binding (default: 90.0)')
+    validate_filter_settings.add_argument('--min_coverage', type=float, default=80.0,
+                                    help='Minimum percent of primer covered by alignment (default: 80.0)')
+    validate_filter_settings.add_argument('--no_check_3prime', action='store_true',
+                                    help='Do not check if 3\' end matches (default: False)')
+
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
     args = parser.parse_args()
@@ -221,7 +240,13 @@ def main():
             genomes=args.genomes, 
             output_file=args.output,
             temp_dir=args.temp_dir,
-            keep_temp=args.keep_temp
+            keep_temp=args.keep_temp,
+            evalue=args.evalue,
+            task=args.task,
+            word_size=args.word_size,
+            min_identity_pct=args.min_identity_pct,
+            min_coverage=args.min_coverage,
+            check_3prime=not args.no_check_3prime
         )
 
     else:

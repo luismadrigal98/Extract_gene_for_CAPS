@@ -179,7 +179,9 @@ def extract_amplicon_sequences(amplicon_coordinates, fasta_file):
     
     return amplicon_sequences
 
-def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_temp=False):
+def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_temp=False,
+                     evalue=0.1, task="blastn-short", word_size=7,
+                     min_identity_pct=90.0, min_coverage=80.0, check_3prime=True):
     """
     Validate primers by BLASTing against target genomes and analyzing potential amplicons.
     
@@ -189,6 +191,12 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     output_file (str): Output file for validation results
     temp_dir (str, optional): Directory to store temporary files
     keep_temp (bool): Whether to keep temporary files
+    evalue (float): E-value threshold for BLAST
+    task (str): BLAST task
+    word_size (int): Word size for BLAST
+    min_identity_pct (float): Minimum percent identity for valid binding
+    min_coverage (float): Minimum percent of primer covered by alignment
+    check_3prime (bool): Whether to check 3' end matches specifically
     """
     import tempfile
     import shutil
@@ -266,15 +274,18 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                 db_path = genome_dbs[genome_file]
                 
                 # BLAST both primers
-                left_out = os.path.join(primer_dir, f"{genome_name}_left_blast.xml")
-                right_out = os.path.join(primer_dir, f"{genome_name}_right_blast.xml")
-                
-                blast_primers(left_fasta, db_path, left_out)
-                blast_primers(right_fasta, db_path, right_out)
+                blast_primers(left_fasta, db_path, left_out, evalue=evalue, task=task, word_size=word_size)
+                blast_primers(right_fasta, db_path, right_out, evalue=evalue, task=task, word_size=word_size)
                 
                 # Parse results
-                left_hits = read_blast_results(left_out, db_path)
-                right_hits = read_blast_results(right_out, db_path)
+                left_hits = read_blast_results(left_out, db_path, 
+                                               min_identity_pct=min_identity_pct, 
+                                               min_coverage=min_coverage, 
+                                               check_3prime=check_3prime)
+                right_hits = read_blast_results(right_out, db_path,
+                                                min_identity_pct=min_identity_pct, 
+                                                min_coverage=min_coverage, 
+                                                check_3prime=check_3prime)
                 
                 # Check if primers are specific (one hit per primer)
                 if len(left_hits) == 1 and len(right_hits) == 1:
