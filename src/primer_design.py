@@ -20,6 +20,10 @@ from Bio.Seq import Seq
 import tempfile
 from tqdm import tqdm
 import sys
+from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
+import random
+import string
 
 # Local imports
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -94,7 +98,7 @@ def run_primer3(input_file, primer3_exe='~/.conda/envs/salmon/bin/primer3_core',
     
     Returns:
     str or tuple: If also_get_formatted is False, returns Boulder IO output.
-                 If True, returns (boulder_output, formatted_output) tuple.
+                    If True, returns (boulder_output, formatted_output) tuple.
     """
     # First run: Get Boulder IO output (for parsing)
     cmd = [primer3_exe]
@@ -219,7 +223,8 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     primer3_exe="~/.conda/envs/salmon/bin/primer3_core", primer3_args="", quality_threshold="high", 
                     min_high=3, min_medium=2, max_low=0, flanking_size=150, target_length=1,
                     max_variants=50, keep_temp=False, temp_dir=None, error_log=None,
-                    contrast=False, num_primers=50, selection_criteria="balanced", selected_output=None):
+                    contrast=False, num_primers=50, selection_criteria="balanced", selected_output=None,
+                    parallel=False, num_workers=None):
     """
     Design primers for variants using Primer3.
     
@@ -244,6 +249,8 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     num_primers (int): Number of primers to select.
     selection_criteria (str): Criteria for selecting primers (e.g., "balanced", "specificity").
     selected_output (str, optional): Path to output file for selected primers.
+    parallel (bool): Whether to use parallel processing for primer design.
+    num_workers (int, optional): Number of worker processes to use. Default: CPU count-1
     
     Returns:
     int: Number of variants for which primers were successfully designed.
@@ -301,6 +308,133 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     # Count of successfully designed primers
     successful_designs = 0
     
+    # Create random ID generator for temp files in parallel mode
+    def random_id(length=6):
+        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    
+    # Configure parallel processing
+    if parallel:
+        if num_workers is None:
+            num_workers = max(1, multiprocessing.cpu_count() - 1)
+        logging.info(f"Parallel processing enabled with {num_workers} workers")
+    
+    # Define function for processing a single variant
+    def process_variant(variant_data, process_id=None, primer3_exe=primer3_exe):
+        # Unpack variant data
+        idx, variant = variant_data
+        
+        # Use unique ID for temp files in parallel mode
+        variant_id = f"{process_id}_{idx}" if process_id else str(idx)
+        
+        # Extract the variant info
+        chrom = variant['CHROM']
+        pos = variant['POS']
+        ref = variant['REF']
+        alt = variant['ALT']
+        variant_id_str = f"{chrom}_{pos}_{ref}_{alt}"
+        
+        # Get flanking sequence - this needs to be made thread-safe
+        flanking_file = os.path.join(temp_dir, f"flanking_{variant_id_str}_{variant_id}.fa")
+        
+        # Calculate region to extract
+        start = max(1, pos - flanking_size)
+        end = pos + flanking_size
+        
+        # Calculate the target position
+        target_pos = pos - start
+
+        # Extract sequence
+        sequence = extract_sequence(reference_fasta, chrom, start, end)
+        if not sequence:
+            logging.error(f"Failed to extract sequence for {chrom}:{pos}")
+            return None
+        
+        # Create a variant-specific directory for temp files if keeping
+        if keep_temp:
+            variant_dir = os.path.join(temp_dir, f"{chrom}_{pos}")
+            if not os.path.exists(variant_dir):
+                os.makedirs(variant_dir)
+            input_file_path = os.path.join(variant_dir, "primer3_input.txt")
+            output_file_path = os.path.join(variant_dir, "primer3_output.txt")
+        else:
+            # Use temporary files that will be deleted
+            temp_input = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+            input_file_path = temp_input.name
+            temp_input.close()
+        
+        # Create primer3 input
+        try:
+            create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, default_settings, input_file_path)
+        except Exception as e:
+            logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
+            if not keep_temp:
+                os.unlink(input_file_path)
+            return None
+        
+        # Run primer3
+        # Expand the directory of the executable
+        primer3_exe = os.path.expanduser(primer3_exe)
+        
+        # Run primer3 with both output formats
+        primer3_result = run_primer3(
+            input_file=input_file_path, 
+            primer3_exe=primer3_exe, 
+            settings_file=settings_file, 
+            primer3_args=primer3_args,
+            also_get_formatted=keep_temp  # Use formatted output when keeping temp files
+        )
+
+        # Handle the result based on output format
+        if keep_temp and primer3_result and isinstance(primer3_result, tuple):
+            boulder_output, formatted_output = primer3_result
+            
+            # Save both outputs
+            with open(output_file_path, 'w') as f:
+                f.write(formatted_output)  # Save human-readable output to file
+                
+            # Parse the boulder output for further processing
+            parsed_output = parse_primer3_output(boulder_output)
+            
+            # Check if primer3 was successful - use boulder_output in this branch
+            if not boulder_output:
+                logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
+                return None
+        else:
+            # Just boulder output
+            primer3_output = primer3_result
+            
+            # Save output if keeping temp files
+            if keep_temp and primer3_output:
+                with open(output_file_path, 'w') as f:
+                    f.write(primer3_output)
+            
+            parsed_output = parse_primer3_output(primer3_output)
+            
+            # Check if primer3 was successful - use primer3_output in this branch
+            if not primer3_output:
+                logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
+                return None
+
+        if parsed_output['num_returned'] == 0:
+            logging.warning(f"No primers found for {chrom}:{pos}")
+            return None
+        
+        # Add variant info to results
+        result = {
+            'chrom': chrom,
+            'position': pos,
+            'ref': ref,
+            'alt': alt,
+            'region_start': start,
+            'region_end': end,
+            'sequence': sequence,
+            'target_position': target_pos,
+            'reliability': variant['overall_reliability'],
+            'primer_results': parsed_output
+        }
+        
+        return result
+    
     # Process each input file
     for input_file in input_files:
         logging.info(f"Processing input file: {input_file}")
@@ -357,116 +491,41 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     logging.warning(f"Limiting from {len(df_primer_compliant)} to {max_variants} variants in {input_file}")
                     df_primer_compliant = df_primer_compliant.head(max_variants)
             
-            # Process each variant
-            for _, variant in tqdm(df_primer_compliant.iterrows(), 
-                                desc=f"Designing primers for variants in {os.path.basename(input_file)}",
-                                total=len(df_primer_compliant)):
-                
-                chrom = variant['CHROM']
-                pos = variant['POS']
-                ref = variant['REF']
-                alt = variant['ALT']
-                
-                # Calculate region to extract
-                start = max(1, pos - flanking_size)
-                end = pos + flanking_size
-                
-                # Calculate the target position
-                
-                target_pos = pos - start
-
-                # Extract sequence
-                sequence = extract_sequence(reference_fasta, chrom, start, end)
-                if not sequence:
-                    logging.error(f"Failed to extract sequence for {chrom}:{pos}")
-                    continue
-                
-                # Create a variant-specific directory for temp files if keeping
-                if keep_temp:
-                    variant_dir = os.path.join(temp_dir, f"{chrom}_{pos}")
-                    if not os.path.exists(variant_dir):
-                        os.makedirs(variant_dir)
-                    input_file_path = os.path.join(variant_dir, "primer3_input.txt")
-                    output_file_path = os.path.join(variant_dir, "primer3_output.txt")
-                else:
-                    # Use temporary files that will be deleted
-                    temp_input = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
-                    input_file_path = temp_input.name
-                    temp_input.close()
-                
-                # Create primer3 input
-                try:
-                    create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, default_settings, input_file_path)
-                except Exception as e:
-                    logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
-                    if not keep_temp:
-                        os.unlink(input_file_path)
-                    continue
-                
-                # Run primer3
-                # Expand the directory of the executable
-                primer3_exe = os.path.expanduser(primer3_exe)
-                
-                # Run primer3 with both output formats
-                primer3_result = run_primer3(
-                    input_file=input_file_path, 
-                    primer3_exe=primer3_exe, 
-                    settings_file=settings_file, 
-                    primer3_args=primer3_args,
-                    also_get_formatted=keep_temp  # Use formatted output when keeping temp files
-                )
-
-                # Handle the result based on output format
-                if keep_temp and primer3_result and isinstance(primer3_result, tuple):
-                    boulder_output, formatted_output = primer3_result
+            if parallel:
+                # Process in parallel
+                results = []
+                with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                    # Generate process IDs for each variant to avoid file conflicts
+                    variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
+                    process_ids = [random_id() for _ in range(len(variant_items))]
                     
-                    # Save both outputs
-                    with open(output_file_path, 'w') as f:
-                        f.write(formatted_output)  # Save human-readable output to file
-                        
-                    # Parse the boulder output for further processing
-                    parsed_output = parse_primer3_output(boulder_output)
+                    # Submit all variants for parallel processing
+                    future_results = list(tqdm(
+                        executor.map(process_variant, 
+                                    variant_items, 
+                                    process_ids),
+                        desc=f"Designing primers for {os.path.basename(input_file)} (parallel)",
+                        total=len(df_primer_compliant),
+                        disable=logging.getLogger().level > logging.INFO
+                    ))
                     
-                    # Check if primer3 was successful - use boulder_output in this branch
-                    if not boulder_output:
-                        logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
-                        continue
-                else:
-                    # Just boulder output
-                    primer3_output = primer3_result
+                    # Collect results
+                    for result in future_results:
+                        if result:  # Check if not None
+                            results.append(result)
+                            successful_designs += 1
                     
-                    # Save output if keeping temp files
-                    if keep_temp and primer3_output:
-                        with open(output_file_path, 'w') as f:
-                            f.write(primer3_output)
+                # Process results...
+            else:
+                # Original sequential processing
+                for idx, variant in tqdm(df_primer_compliant.iterrows(), 
+                                    desc=f"Designing primers for variants in {os.path.basename(input_file)}",
+                                    total=len(df_primer_compliant)):
                     
-                    parsed_output = parse_primer3_output(primer3_output)
-                    
-                    # Check if primer3 was successful - use primer3_output in this branch
-                    if not primer3_output:
-                        logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
-                        continue
-
-                if parsed_output['num_returned'] == 0:
-                    logging.warning(f"No primers found for {chrom}:{pos}")
-                    continue
-                
-                # Add variant info to results
-                result = {
-                    'chrom': chrom,
-                    'position': pos,
-                    'ref': ref,
-                    'alt': alt,
-                    'region_start': start,
-                    'region_end': end,
-                    'sequence': sequence,
-                    'target_position': target_pos,
-                    'reliability': variant['overall_reliability'],
-                    'primer_results': parsed_output
-                }
-                
-                all_results.append(result)
-                successful_designs += 1
+                    result = process_variant((idx, variant))
+                    if result:
+                        all_results.append(result)
+                        successful_designs += 1
                 
         except Exception as e:
             logging.error(f"Error processing file {input_file}: {e}")

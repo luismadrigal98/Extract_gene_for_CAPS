@@ -135,7 +135,7 @@ def main():
                                     help='Minimum quality threshold for variants (high, medium, low)')
     design_parser_filtering.add_argument('--min_high', type=int, default=3, 
                                     help='Minimum number of high reliability variants required')
-    design_parser_filtering.add_argument('--min_medium', type=int, default=2, 
+    design_parser_filtering.add_argument('--min_medium', type=int, default=0, 
                                     help='Minimum number of medium reliability variants required')
     design_parser_filtering.add_argument('--max_low', type=int, default=0, 
                                     help='Maximum number of low reliability variants allowed')
@@ -173,7 +173,11 @@ def main():
                                     help='Criteria for selecting best primers: balanced (default), tm_stability, size, specificity')
     design_parser_contrast.add_argument('--selected_output', type=str,
                                     help='Optional output file for selected primers only (when using --contrast)')
-    
+    design_parser.add_argument("--parallel", action="store_true", 
+                            help="Run primer design in parallel to utilize multiple CPU cores")
+    design_parser.add_argument("--workers", type=int, default=None,
+                            help="Number of worker processes for parallel execution (default: CPU count-1)")
+
     # In silico validation of the designed primers
     validate_parser = subparsers.add_parser('Validate', help='Validate primers by BLASTing against target genomes')
     
@@ -186,12 +190,12 @@ def main():
     # BLAST search parameters
     validate_blast_settings = validate_parser.add_argument_group("BLAST search settings")
     validate_blast_settings.add_argument('--evalue', type=float, default=0.1, 
-                                   help='E-value threshold for BLAST (default: 0.1)')
+                                    help='E-value threshold for BLAST (default: 0.1)')
     validate_blast_settings.add_argument('--task', type=str, default='blastn-short',
-                                   choices=['blastn', 'blastn-short', 'dc-megablast', 'megablast'],
-                                   help='BLAST task type (default: blastn-short)')
+                                    choices=['blastn', 'blastn-short', 'dc-megablast', 'megablast'],
+                                    help='BLAST task type (default: blastn-short)')
     validate_blast_settings.add_argument('--word_size', type=int, default=7,
-                                   help='Word size for BLAST search (default: 7)')
+                                    help='Word size for BLAST search (default: 7)')
 
     # Hit filtering parameters
     validate_filter_settings = validate_parser.add_argument_group("BLAST hit filtering settings")
@@ -222,15 +226,30 @@ def main():
                         args.diff_parental, args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,
                         args.displacement_tol)
     elif args.command == 'Design':
-        design_primers(args.input_files, args.reference_fasta, args.output, 
-                        args.settings_file, args.primer3_exe, args.primer3_args,
-                        args.quality_threshold, args.min_high, args.min_medium, 
-                        args.max_low, args.flanking_size, 1,  # target_length parameter
-                        args.max_variants, args.keep_temp, args.temp_dir, args.error_log,
-                        contrast=args.contrast,  # CORRECT ORDER WITH NAMED PARAMS
-                        num_primers=args.num_primers,
-                        selection_criteria=args.selection_criteria,
-                        selected_output=args.selected_output)
+        design_primers(
+            input_files=args.input_files,
+            reference_fasta=args.reference_fasta,
+            output=args.output, 
+            settings_file=args.settings_file, 
+            primer3_exe=args.primer3_exe, 
+            primer3_args=args.primer3_args,
+            quality_threshold=args.quality_threshold, 
+            min_high=args.min_high, 
+            min_medium=args.min_medium, 
+            max_low=args.max_low, 
+            flanking_size=args.flanking_size, 
+            target_length=1,  # target_length parameter
+            max_variants=args.max_variants, 
+            keep_temp=args.keep_temp, 
+            temp_dir=args.temp_dir, 
+            error_log=args.error_log,
+            contrast=args.contrast,  # CORRECT ORDER WITH NAMED PARAMS
+            num_primers=args.num_primers,
+            selection_criteria=args.selection_criteria,
+            selected_output=args.selected_output,
+            parallel=args.parallel,
+            num_workers=args.workers
+        )
     elif args.command == 'Validate':
         
         from src.validation_utilities import validate_primers
