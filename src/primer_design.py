@@ -333,9 +333,6 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
         alt = variant['ALT']
         variant_id_str = f"{chrom}_{pos}_{ref}_{alt}"
         
-        # Get flanking sequence - this needs to be made thread-safe
-        flanking_file = os.path.join(temp_dir, f"flanking_{variant_id_str}_{variant_id}.fa")
-        
         # Calculate region to extract
         start = max(1, pos - flanking_size)
         end = pos + flanking_size
@@ -515,7 +512,8 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                             results.append(result)
                             successful_designs += 1
                     
-                # Process results...
+                # Transfer parallel results to all_results
+                all_results.extend(results)
             else:
                 # Original sequential processing
                 for idx, variant in tqdm(df_primer_compliant.iterrows(), 

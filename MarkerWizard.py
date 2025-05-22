@@ -229,7 +229,7 @@ def main():
         design_primers(
             input_files=args.input_files,
             reference_fasta=args.reference_fasta,
-            output=args.output, 
+            output_file=args.output,  # Changed from output to output_file
             settings_file=args.settings_file, 
             primer3_exe=args.primer3_exe, 
             primer3_args=args.primer3_args,
