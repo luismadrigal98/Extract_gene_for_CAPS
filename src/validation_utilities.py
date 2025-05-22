@@ -228,7 +228,7 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     primers_df = pd.read_csv(primers_file, sep='\t')
     
     # Group by variant to get primer pairs
-    validation_results = []
+    validation_results = {}  # Initialize as dictionary, not list
     all_amplicons_fasta = os.path.join(os.path.dirname(output_file), "all_amplicons.fasta")
     all_amplicons_file = open(all_amplicons_fasta, 'w')
     
@@ -371,9 +371,9 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                     if left_hit['strand'] == 'plus' and right_hit['strand'] == 'minus':
                         # Normal orientation: left → right
                         is_valid_orientation = True
-                        amplicon_start = min(left_hit['sbjct_start'], right_hit['sbjct_start']) 
+                        amplicon_start = min(left_hit['sbjct_start'], right_hit['sbjct_start'])
                         amplicon_end = max(left_hit['sbjct_end'], right_hit['sbjct_end'])
-                        amplicon_size = amplicon_end - amplicon_start
+                        amplicon_size = amplicon_end - amplicon_start + 1  # Add 1 for inclusive counting
                     elif left_hit['strand'] == 'minus' and right_hit['strand'] == 'plus':
                         # Reverse orientation: ← left     right →
                         is_valid_orientation = True
@@ -382,7 +382,15 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                         amplicon_size = amplicon_end - amplicon_start
                     
                     if is_valid_orientation:
-                        # [Code to extract amplicon sequence...]
+                        # Extract amplicon from genome file
+                        from Bio import SeqIO
+                        for record in SeqIO.parse(genome_file, "fasta"):
+                            if record.id == left_hit['hit_id']:
+                                amplicon_seq = str(record.seq[amplicon_start-1:amplicon_end])
+                                # Write to amplicon files
+                                primer_amplicons.write(f">{primer_id}_{genome_name}\n{amplicon_seq}\n")
+                                all_amplicons_file.write(f">{primer_id}_{genome_name}\n{amplicon_seq}\n")
+                                break
                         
                         primer_result['genomes'][genome_name] = {
                             'specific': True,
