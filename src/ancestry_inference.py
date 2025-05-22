@@ -1149,12 +1149,22 @@ def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
             for f2_id in f2_samples:
                 if f2_id in roi_variants.columns:
                     gt, depth, qual = extract_genotype(variant[f2_id], return_quality=True)
-                    record[f2_id] = gt
+                    
+                    # Mark low-depth calls as unreliable by converting them to missing
+                    if depth < min_depth:
+                        logging.debug(f"Low depth call ({depth}) for {f2_id} at {variant['CHROM']}:{variant['POS']}, treating as missing")
+                        gt = "./."
+                        record[f2_id] = f"{gt}*"  # Add marker to indicate this was filtered for low depth
+                    else:
+                        record[f2_id] = gt
                     
                     # Record genotype with quality info
                     genotype_counts[gt] += 1
                     depth_data[gt].append(depth)
                     f2_genotypes[f2_id] = (gt, depth, qual)
+            
+            # Add a new field to track percentage of low-depth calls
+            record['pct_low_depth'] = round(100 * sum(1 for _, (_, d, _) in f2_genotypes.items() if d < min_depth) / len(f2_genotypes), 1) if f2_genotypes else 0.0
             
             # Calculate consistency metrics
             total_valid = sum([genotype_counts['0/0'], genotype_counts['0/1'], genotype_counts['1/1']])
@@ -1177,7 +1187,7 @@ def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
                     
                     total_cross_valid = sum([cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1']])
                     if total_cross_valid > 0:
-                        max_count = max(cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1']])
+                        max_count = max(cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1'])
                         record[f"consistency_{cross}"] = round(100 * max_count / total_cross_valid, 1)
                     else:
                         record[f"consistency_{cross}"] = 0
@@ -1204,7 +1214,7 @@ def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
             
             # Summary output with consistency stats
             summary_df = pd.DataFrame(results)[['CHROM', 'POS', 'REF', 'ALT', 'consistency', 
-                                               'pct_hom_ref', 'pct_het', 'pct_hom_alt', 'pct_missing']]
+                                                    'pct_hom_ref', 'pct_het', 'pct_hom_alt', 'pct_missing']]
             summary_file = f"{output}_{roi_name}_consistency_summary.tsv"
             summary_df.to_csv(summary_file, sep='\t', index=False)
             logging.info(f"Wrote consistency summary to {summary_file}")
