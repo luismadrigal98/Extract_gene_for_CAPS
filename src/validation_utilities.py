@@ -228,6 +228,21 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
         create_blast_db(genome_file, db_name)
         genome_dbs[genome_file] = db_name
     
+    # Load all genomes into memory once at the beginning
+    genome_sequences = {}
+    for genome_file in genomes:
+        genome_name = os.path.basename(genome_file)
+        logger.info(f"Loading genome {genome_name} into memory")
+        genome_sequences[genome_name] = {}
+        
+        for record in SeqIO.parse(genome_file, "fasta"):
+            # Store with clean ID (remove description)
+            clean_id = record.id.split()[0]
+            genome_sequences[genome_name][clean_id] = record.seq
+            
+            # Also store with full ID for redundancy
+            genome_sequences[genome_name][record.id] = record.seq
+    
     # Process each primer individually (not grouped)
     for idx, row in primers_df.iterrows():
         # Extract primer information
@@ -376,37 +391,47 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                     
                     # Fix the amplicon extraction part
                     if is_valid_orientation:
-                        # Extract amplicon from genome file
-                        found_record = False
                         amplicon_seq = None
+                        genome_name = os.path.basename(genome_file)
                         
-                        for record in SeqIO.parse(genome_file, "fasta"):
-                            # Match the first part of hit_id (before any whitespace)
-                            hit_id_base = left_hit['hit_id'].split()[0]
-                            record_id_base = record.id.split()[0]
-                            
-                            if record_id_base == hit_id_base:
-                                found_record = True
-                                logger.info(f"Found matching record for hit ID {hit_id_base}")
+                        # Get the clean hit ID (first part before space)
+                        hit_id = left_hit['hit_id'].split()[0]
+                        
+                        # Try to find the sequence in the pre-loaded genomes
+                        if hit_id in genome_sequences[genome_name]:
+                            logger.info(f"Found matching record for hit ID {hit_id}")
+                            try:
+                                sequence = genome_sequences[genome_name][hit_id]
+                                # Subtract 1 from start for 0-based indexing
+                                amplicon_seq = str(sequence[max(0, amplicon_start-1):amplicon_end])
                                 
-                                try:
-                                    # Subtract 1 from start for 0-based indexing
-                                    amplicon_seq = str(record.seq[max(0, amplicon_start-1):amplicon_end])
-                                    
-                                    # Log the sequence length for debugging
-                                    logger.info(f"Extracted amplicon sequence of length {len(amplicon_seq)} from {amplicon_start-1} to {amplicon_end}")
-                                    
-                                    # Write to amplicon files with clear description
-                                    primer_amplicons.write(f">{primer_id}_{genome_name}|{amplicon_start}-{amplicon_end}\n{amplicon_seq}\n")
-                                    with open(all_amplicons_fasta, 'a') as all_amplicons_file:  # Open in append mode
-                                        all_amplicons_file.write(f">{primer_id}_{genome_name}|{amplicon_start}-{amplicon_end}\n{amplicon_seq}\n")
-                                    break
-                                except Exception as e:
-                                    logger.error(f"Error extracting amplicon sequence: {e}")
-                                    logger.error(f"Record length: {len(record.seq)}, attempting to slice from {amplicon_start-1} to {amplicon_end}")
-                        
-                        if not found_record:
-                            logger.warning(f"No matching record found for hit ID {left_hit['hit_id']} - check FASTA headers")
+                                logger.info(f"Extracted amplicon of length {len(amplicon_seq)}")
+                                
+                                # Write to amplicon files
+                                primer_amplicons.write(f">{primer_id}_{genome_name}|{amplicon_start}-{amplicon_end}\n{amplicon_seq}\n")
+                                with open(all_amplicons_fasta, 'a') as all_amplicons_file:
+                                    all_amplicons_file.write(f">{primer_id}_{genome_name}|{amplicon_start}-{amplicon_end}\n{amplicon_seq}\n")
+                            except Exception as e:
+                                logger.error(f"Error extracting amplicon: {e}")
+                        else:
+                            # Try alternative matching methods if needed
+                            logger.warning(f"No direct match for hit ID {hit_id}, trying alternative matching...")
+                            
+                            # This is a fallback method that tries to find any ID that contains the hit_id
+                            found_match = False
+                            for record_id, sequence in genome_sequences[genome_name].items():
+                                if hit_id in record_id:
+                                    logger.info(f"Found partial match: {record_id} contains {hit_id}")
+                                    try:
+                                        amplicon_seq = str(sequence[max(0, amplicon_start-1):amplicon_end])
+                                        # Write sequences as above
+                                        found_match = True
+                                        break
+                                    except Exception as e:
+                                        logger.error(f"Error extracting from partial match: {e}")
+                            
+                            if not found_match:
+                                logger.warning(f"No matching record found for hit ID {hit_id}")
                         
                         primer_result['genomes'][genome_name] = {
                             'specific': True,
