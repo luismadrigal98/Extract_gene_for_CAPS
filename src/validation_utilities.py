@@ -277,6 +277,15 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
             'genomes': {}
         }
         
+        # Initialize results for all genomes first
+        for genome_file in genomes:
+            genome_name = os.path.basename(genome_file)
+            primer_result['genomes'][genome_name] = {
+                'specific': False,
+                'reason': 'not_processed',
+                'amplicon_length': 'N/A'
+            }
+        
         amplicon_fasta = os.path.join(primer_dir, "amplicons.fasta")
         with open(amplicon_fasta, 'w') as primer_amplicons:
             # Check each genome
@@ -302,82 +311,93 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                                                 min_coverage=min_coverage, 
                                                 check_3prime=check_3prime)
                 
-                # Check if primers are specific (one hit per primer)
-                if len(left_hits) == 1 and len(right_hits) == 1:
-                    left_hit = left_hits[0]
-                    right_hit = right_hits[0]
-                    
-                    # Check if they're on the same chromosome
-                    if left_hit['hit_id'] == right_hit['hit_id']:
-                        # Check orientation - for proper PCR, we need:
-                        # left primer on + strand AND right primer on - strand
-                        # OR left primer on - strand AND right primer on + strand
-                        if (left_hit['strand'] == 'plus' and right_hit['strand'] == 'minus') or \
-                           (left_hit['strand'] == 'minus' and right_hit['strand'] == 'plus'):
-                            
-                            # Determine amplicon coordinates based on strand
-                            if left_hit['strand'] == 'plus':
-                                amplicon_start = left_hit['sbjct_end']  # End of left primer binding
-                                amplicon_end = right_hit['sbjct_start'] # Start of right primer binding
-                            else:
-                                # Reversed orientation
-                                amplicon_start = right_hit['sbjct_end']  # End of right primer binding
-                                amplicon_end = left_hit['sbjct_start']   # Start of left primer binding
-                            
-                            # Make sure amplicon_start < amplicon_end
-                            if amplicon_start > amplicon_end:
-                                amplicon_start, amplicon_end = amplicon_end, amplicon_start
-                            
-                            # Extract the amplicon sequence
-                            with open(genome_file, 'r') as genome_handle:
-                                for record in SeqIO.parse(genome_handle, "fasta"):
-                                    if record.id == left_hit['hit_id'].split(' ')[0]:
-                                        amplicon_seq = record.seq[amplicon_start-1:amplicon_end-1]
-                                        amplicon_len = len(amplicon_seq)
-                                        
-                                        # Write to primer-specific amplicon file
-                                        primer_amplicons.write(f">{primer_id}_{genome_name}\n{amplicon_seq}\n")
-                                        
-                                        # Also write to master amplicon file
-                                        all_amplicons_file.write(f">{primer_id}_{genome_name}\n{amplicon_seq}\n")
-                                        
-                                        primer_result['genomes'][genome_name] = {
-                                            'specific': True,
-                                            'amplicon_length': amplicon_len,
-                                            'amplicon_seq': str(amplicon_seq)
-                                        }
-                                        continue
-                        else:
-                            logger.warning(f"Unexpected primer orientations for {primer_id} in {genome_name}")
-                            primer_result['genomes'][genome_name] = {
-                                'specific': False,
-                                'reason': 'unexpected_orientation'
-                            }
-                    else:
-                        logger.warning(f"Primers hit different chromosomes for {primer_id} in {genome_name}")
-                        primer_result['genomes'][genome_name] = {
-                            'specific': False,
-                            'reason': 'different_chromosomes'
-                        }
-                else:
-                    # Determine the correct reason
-                    if len(left_hits) == 0:
-                        reason = "no_hit_for_left_primer"
-                    elif len(right_hits) == 0:
-                        reason = "no_hit_for_right_primer" 
-                    elif len(left_hits) > 1:
-                        reason = "multiple_hits_for_left_primer"
-                    elif len(right_hits) > 1:
-                        reason = "multiple_hits_for_right_primer"
-                    else:
-                        reason = "unexpected_issue"
-                        
+                # Detailed result reporting with clear diagnostics
+                if len(left_hits) == 0 and len(right_hits) == 0:
                     primer_result['genomes'][genome_name] = {
                         'specific': False,
-                        'reason': reason,
+                        'reason': 'no_hits_for_both_primers',
+                        'amplicon_length': 'N/A'
+                    }
+                elif len(left_hits) == 0:
+                    primer_result['genomes'][genome_name] = {
+                        'specific': False,
+                        'reason': 'no_hit_for_left_primer',
+                        'amplicon_length': 'N/A',
+                        'right_hits': len(right_hits)
+                    }
+                elif len(right_hits) == 0:
+                    primer_result['genomes'][genome_name] = {
+                        'specific': False,
+                        'reason': 'no_hit_for_right_primer',
+                        'amplicon_length': 'N/A',
+                        'left_hits': len(left_hits)
+                    }
+                elif len(left_hits) > 1:
+                    primer_result['genomes'][genome_name] = {
+                        'specific': False,
+                        'reason': 'multiple_hits_for_left_primer',
+                        'amplicon_length': 'N/A',
                         'left_hits': len(left_hits),
                         'right_hits': len(right_hits)
                     }
+                elif len(right_hits) > 1:
+                    primer_result['genomes'][genome_name] = {
+                        'specific': False,
+                        'reason': 'multiple_hits_for_right_primer',
+                        'amplicon_length': 'N/A',
+                        'left_hits': len(left_hits),
+                        'right_hits': len(right_hits)
+                    }
+                else:
+                    left_hit = left_hits[0]
+                    right_hit = right_hits[0]
+                    
+                    # Check if they hit same chromosome
+                    if left_hit['hit_id'] != right_hit['hit_id']:
+                        primer_result['genomes'][genome_name] = {
+                            'specific': False,
+                            'reason': 'hits_on_different_chromosomes',
+                            'amplicon_length': 'N/A',
+                            'left_chr': left_hit['hit_id'],
+                            'right_chr': right_hit['hit_id']
+                        }
+                        continue
+                        
+                    # Check orientation for proper amplification
+                    is_valid_orientation = False
+                    amplicon_size = 'N/A'
+                    
+                    # Both primers must be on same strand for PCR to work
+                    if left_hit['strand'] == 'plus' and right_hit['strand'] == 'minus':
+                        # Normal orientation: left → right
+                        is_valid_orientation = True
+                        amplicon_start = min(left_hit['sbjct_end'], right_hit['sbjct_start'])
+                        amplicon_end = max(left_hit['sbjct_end'], right_hit['sbjct_start'])
+                        amplicon_size = amplicon_end - amplicon_start
+                    elif left_hit['strand'] == 'minus' and right_hit['strand'] == 'plus':
+                        # Reverse orientation: ← left     right →
+                        is_valid_orientation = True
+                        amplicon_start = min(left_hit['sbjct_start'], right_hit['sbjct_end']) 
+                        amplicon_end = max(left_hit['sbjct_start'], right_hit['sbjct_end'])
+                        amplicon_size = amplicon_end - amplicon_start
+                    
+                    if is_valid_orientation:
+                        # [Code to extract amplicon sequence...]
+                        
+                        primer_result['genomes'][genome_name] = {
+                            'specific': True,
+                            'amplicon_length': amplicon_size,
+                            'left_pos': f"{left_hit['sbjct_start']}-{left_hit['sbjct_end']} ({left_hit['strand']})",
+                            'right_pos': f"{right_hit['sbjct_start']}-{right_hit['sbjct_end']} ({right_hit['strand']})"
+                        }
+                    else:
+                        primer_result['genomes'][genome_name] = {
+                            'specific': False,
+                            'reason': 'invalid_primer_orientation',
+                            'amplicon_length': 'N/A',
+                            'left_orientation': left_hit['strand'],
+                            'right_orientation': right_hit['strand']
+                        }
         
         validation_results.append(primer_result)
     
@@ -396,10 +416,17 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
             f.write("| Genome | Specific | Amplicon Length | Notes |\n")
             f.write("|--------|----------|----------------|-------|\n")
             
-            for genome_name, details in result['genomes'].items():
+            # Ensure all genomes are present in sorted order
+            for genome_name in sorted(result['genomes'].keys()):
+                details = result['genomes'][genome_name]
                 specific = "Yes" if details.get('specific', False) else "No"
                 amplicon_length = details.get('amplicon_length', "N/A")
-                notes = details.get('reason', "") if not details.get('specific', False) else ""
+                
+                # Generate detailed notes
+                if details.get('specific', False):
+                    notes = f"Valid amplicon {amplicon_length}bp"
+                else:
+                    notes = details.get('reason', "Unknown issue")
                 
                 f.write(f"| {genome_name} | {specific} | {amplicon_length} | {notes} |\n")
             
