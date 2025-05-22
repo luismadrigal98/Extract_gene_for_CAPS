@@ -213,7 +213,7 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     # Load primers from file
     primers_df = pd.read_csv(primers_file, sep='\t')
     
-    # Process each primer pair individually (not with groupby)
+    # Process each primer pair individually
     validation_results = []
     
     # Create BLAST databases for each genome
@@ -223,22 +223,7 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
         create_blast_db(genome_file, db_name)
         genome_dbs[genome_file] = db_name
     
-    # Load all genomes into memory once at the beginning
-    genome_sequences = {}
-    for genome_file in genomes:
-        genome_name = os.path.basename(genome_file)
-        logger.info(f"Loading genome {genome_name} into memory")
-        genome_sequences[genome_name] = {}
-        
-        for record in SeqIO.parse(genome_file, "fasta"):
-            # Store with clean ID (remove description)
-            clean_id = record.id.split()[0]
-            genome_sequences[genome_name][clean_id] = record.seq
-            
-            # Also store with full ID for redundancy
-            genome_sequences[genome_name][record.id] = record.seq
-    
-    # Process each primer individually
+    # Process each primer individually - no need to preload genomes since we're not extracting sequences
     for idx, row in primers_df.iterrows():
         # Extract primer information
         chrom = row['CHROM']
@@ -326,8 +311,11 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                     'amplicon_length': 'N/A'
                 }
             elif len(right_hits) == 0:
-                # Similar checks for other conditions...
-                # [rest of your validation logic]
+                primer_result['genomes'][genome_name] = {
+                    'specific': False,
+                    'reason': 'no_hit_for_right_primer',
+                    'amplicon_length': 'N/A'
+                }
             elif len(left_hits) > 1:
                 primer_result['genomes'][genome_name] = {
                     'specific': False,
@@ -372,7 +360,7 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                     amplicon_size = amplicon_end - amplicon_start + 1
                 
                 if is_valid_orientation:
-                    # Record results without writing files
+                    # Just record the results without writing amplicon files
                     primer_result['genomes'][genome_name] = {
                         'specific': True,
                         'amplicon_length': amplicon_size,
