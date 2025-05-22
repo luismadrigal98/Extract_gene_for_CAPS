@@ -13,6 +13,9 @@ import logging
 import os
 import subprocess
 import xml.parsers.expat
+import tempfile
+import shutil
+from Bio import SeqIO
 
 # Set up logging
 logging.basicConfig(
@@ -196,9 +199,6 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     """
     Validate primers by BLASTing against target genomes and analyzing potential amplicons.
     """
-    import tempfile
-    import shutil
-    import pandas as pd
     
     # Create temp directory
     if temp_dir is None:
