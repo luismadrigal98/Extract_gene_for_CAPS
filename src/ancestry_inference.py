@@ -1074,3 +1074,137 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             logging.info(f"Saved simplified results to {simplified_output}")
         else:
             logging.info(f"No results for ROI {roi_name}")
+
+def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
+    """
+    Extract F2 genotypes from VCF file and output as a table with consistency metrics
+    
+    Args:
+        vcf: Path to VCF file
+        ROI_list: Path to regions of interest file
+        ancestry_log: Path to relationship map file
+        output: Base name for output files
+        min_depth: Minimum read depth to consider a call reliable
+    """
+    # Read input files
+    vcf_df = read_vcf(vcf)
+    ancestry_df = pd.read_csv(ancestry_log, header=0, sep='\t')
+    
+    try:
+        roi_df = pd.read_csv(ROI_list, sep='\t')
+    except:
+        roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
+    
+    # Get F2 samples and their parents
+    f2_samples = {}
+    for _, row in ancestry_df.iterrows():
+        if row['FC'] == 'F2':
+            f2_samples[str(row['ID'])] = (row['Common'], row['Alt'])
+    
+    logging.info(f"Found {len(f2_samples)} F2 samples")
+    
+    # Group F2s by cross combination
+    f2_by_cross = {}
+    for f2_id, (common, alt) in f2_samples.items():
+        cross_key = f"{common}_{alt}"
+        if cross_key not in f2_by_cross:
+            f2_by_cross[cross_key] = []
+        f2_by_cross[cross_key].append(f2_id)
+    
+    # Process each ROI
+    for _, roi in roi_df.iterrows():
+        roi_name = roi['ROI_name'].split('_')[0].strip()
+        chrom = roi['Chrom']
+        start = roi['Start']
+        end = roi['End']
+        
+        logging.info(f"Processing ROI: {roi_name} ({chrom}:{start}-{end})")
+        
+        # Filter variants in this ROI
+        roi_variants = vcf_df[(vcf_df['CHROM'] == chrom) & 
+                              (vcf_df['POS'] >= start) & 
+                              (vcf_df['POS'] <= end)]
+        
+        if len(roi_variants) == 0:
+            logging.info(f"No variants found in ROI {roi_name}")
+            continue
+            
+        # Create output dataframe
+        results = []
+        
+        # Process each variant
+        for _, variant in roi_variants.iterrows():
+            record = {
+                'CHROM': variant['CHROM'],
+                'POS': variant['POS'],
+                'REF': variant['REF'],
+                'ALT': variant['ALT']
+            }
+            
+            # Collect genotype data across all F2s
+            genotype_counts = {'0/0': 0, '0/1': 0, '1/1': 0, './.': 0}
+            depth_data = {'0/0': [], '0/1': [], '1/1': [], './.': []}
+            f2_genotypes = {}
+            
+            for f2_id in f2_samples:
+                if f2_id in roi_variants.columns:
+                    gt, depth, qual = extract_genotype(variant[f2_id], return_quality=True)
+                    record[f2_id] = gt
+                    
+                    # Record genotype with quality info
+                    genotype_counts[gt] += 1
+                    depth_data[gt].append(depth)
+                    f2_genotypes[f2_id] = (gt, depth, qual)
+            
+            # Calculate consistency metrics
+            total_valid = sum([genotype_counts['0/0'], genotype_counts['0/1'], genotype_counts['1/1']])
+            if total_valid > 0:
+                record['pct_hom_ref'] = round(100 * genotype_counts['0/0'] / total_valid, 1)
+                record['pct_het'] = round(100 * genotype_counts['0/1'] / total_valid, 1)
+                record['pct_hom_alt'] = round(100 * genotype_counts['1/1'] / total_valid, 1)
+                record['pct_missing'] = round(100 * genotype_counts['./.'] / len(f2_genotypes), 1) if f2_genotypes else 100.0
+                
+                # Calculate consistency (most common genotype percentage)
+                max_pct = max(record['pct_hom_ref'], record['pct_het'], record['pct_hom_alt'])
+                record['consistency'] = max_pct
+                
+                # Calculate per-cross consistency
+                for cross, f2_ids in f2_by_cross.items():
+                    cross_gts = {gt: 0 for gt in ['0/0', '0/1', '1/1', './.']}
+                    for f2_id in f2_ids:
+                        if f2_id in f2_genotypes:
+                            cross_gts[f2_genotypes[f2_id][0]] += 1
+                    
+                    total_cross_valid = sum([cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1']])
+                    if total_cross_valid > 0:
+                        max_count = max(cross_gts['0/0'], cross_gts['0/1'], cross_gts['1/1']])
+                        record[f"consistency_{cross}"] = round(100 * max_count / total_cross_valid, 1)
+                    else:
+                        record[f"consistency_{cross}"] = 0
+                        
+                # Calculate average depths
+                for gt in depth_data:
+                    if depth_data[gt]:
+                        record[f"avg_depth_{gt}"] = round(sum(depth_data[gt]) / len(depth_data[gt]), 1)
+            else:
+                record['pct_hom_ref'] = 0
+                record['pct_het'] = 0
+                record['pct_hom_alt'] = 0
+                record['pct_missing'] = 100.0
+                record['consistency'] = 0
+            
+            results.append(record)
+        
+        # Write output
+        if results:
+            # Main output with all data
+            output_file = f"{output}_{roi_name}_f2_genotypes.tsv"
+            pd.DataFrame(results).to_csv(output_file, sep='\t', index=False)
+            logging.info(f"Wrote F2 genotypes to {output_file}")
+            
+            # Summary output with consistency stats
+            summary_df = pd.DataFrame(results)[['CHROM', 'POS', 'REF', 'ALT', 'consistency', 
+                                               'pct_hom_ref', 'pct_het', 'pct_hom_alt', 'pct_missing']]
+            summary_file = f"{output}_{roi_name}_consistency_summary.tsv"
+            summary_df.to_csv(summary_file, sep='\t', index=False)
+            logging.info(f"Wrote consistency summary to {summary_file}")

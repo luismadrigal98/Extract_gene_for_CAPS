@@ -98,6 +98,14 @@ def main():
                             help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
     inference_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
 
+    # Add a new parser after the 'Infer' parser, around line 108
+    extract_parser = subparsers.add_parser('ExtractF2', help='Extract F2 genotypes from VCF file')
+    extract_parser.add_argument('--vcf', type=str, required=True, help='Input VCF file')
+    extract_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be analyzed')
+    extract_parser.add_argument('--ancestry_log', type=str, required=True, help='Table with sample relationships')
+    extract_parser.add_argument('--output', type=str, required=True, help='Base name for output files')
+    extract_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
+
     # Searching for diagnostic markers
 
     screen_parser = subparsers.add_parser('Screen', help='Screen the variants for diagnostic markers')
@@ -223,6 +231,8 @@ def main():
             infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output, 
                                     use_assembly_when_f2_missing=args.use_assembly_when_f2_missing,
                                     min_depth=args.min_depth)
+    elif args.command == 'ExtractF2':
+        extract_f2_genotypes(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.min_depth)
     elif args.command == 'Screen':
         screen_variants(args.inferred_alleles_tsv, args.output_dir, args.allele_col_pattern, args.overall_reliability_to_retain,
                         args.diff_parental, args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,
