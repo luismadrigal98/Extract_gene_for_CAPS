@@ -371,8 +371,8 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                     if left_hit['strand'] == 'plus' and right_hit['strand'] == 'minus':
                         # Normal orientation: left → right
                         is_valid_orientation = True
-                        amplicon_start = min(left_hit['sbjct_end'], right_hit['sbjct_start'])
-                        amplicon_end = max(left_hit['sbjct_end'], right_hit['sbjct_start'])
+                        amplicon_start = min(left_hit['sbjct_start'], right_hit['sbjct_start']) 
+                        amplicon_end = max(left_hit['sbjct_end'], right_hit['sbjct_end'])
                         amplicon_size = amplicon_end - amplicon_start
                     elif left_hit['strand'] == 'minus' and right_hit['strand'] == 'plus':
                         # Reverse orientation: ← left     right →
@@ -399,7 +399,9 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                             'right_orientation': right_hit['strand']
                         }
         
-        validation_results.append(primer_result)
+        if primer_id not in validation_results:
+            validation_results[primer_id] = []
+        validation_results[primer_id].append(primer_result)
     
     # Close master amplicon file
     all_amplicons_file.close()
@@ -408,29 +410,32 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     with open(output_file, 'w') as f:
         f.write("# Primer Validation Results\n\n")
         
-        for result in validation_results:
-            f.write(f"## Primer {result['primer_id']}\n")
-            f.write(f"- Left: {result['left_primer']}\n")
-            f.write(f"- Right: {result['right_primer']}\n\n")
-            
-            f.write("| Genome | Specific | Amplicon Length | Notes |\n")
-            f.write("|--------|----------|----------------|-------|\n")
-            
-            # Ensure all genomes are present in sorted order
-            for genome_name in sorted(result['genomes'].keys()):
-                details = result['genomes'][genome_name]
-                specific = "Yes" if details.get('specific', False) else "No"
-                amplicon_length = details.get('amplicon_length', "N/A")
+        for primer_id, primer_results in validation_results.items():
+            for i, result in enumerate(primer_results):
+                # Use index to distinguish between primer pairs
+                display_id = f"{primer_id}_design{i+1}" if len(primer_results) > 1 else primer_id
+                f.write(f"## Primer {display_id}\n")
+                f.write(f"- Left: {result['left_primer']}\n")
+                f.write(f"- Right: {result['right_primer']}\n\n")
                 
-                # Generate detailed notes
-                if details.get('specific', False):
-                    notes = f"Valid amplicon {amplicon_length}bp"
-                else:
-                    notes = details.get('reason', "Unknown issue")
+                f.write("| Genome | Specific | Amplicon Length | Notes |\n")
+                f.write("|--------|----------|----------------|-------|\n")
                 
-                f.write(f"| {genome_name} | {specific} | {amplicon_length} | {notes} |\n")
-            
-            f.write("\n")
+                # Ensure all genomes are present in sorted order
+                for genome_name in sorted(result['genomes'].keys()):
+                    details = result['genomes'][genome_name]
+                    specific = "Yes" if details.get('specific', False) else "No"
+                    amplicon_length = details.get('amplicon_length', "N/A")
+                    
+                    # Generate detailed notes
+                    if details.get('specific', False):
+                        notes = f"Valid amplicon {amplicon_length}bp"
+                    else:
+                        notes = details.get('reason', "Unknown issue")
+                    
+                    f.write(f"| {genome_name} | {specific} | {amplicon_length} | {notes} |\n")
+                
+                f.write("\n")
     
     logger.info(f"Validation results written to {output_file}")
     logger.info(f"All amplicon sequences written to {all_amplicons_fasta}")
