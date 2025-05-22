@@ -407,6 +407,11 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
                             'right_orientation': right_hit['strand']
                         }
         
+        # Add this check to ensure validation_results stays a dictionary
+        if not isinstance(validation_results, dict):
+            validation_results = {}  # Reset to dictionary if it somehow became something else
+        
+        # Now safely add the primer result
         if primer_id not in validation_results:
             validation_results[primer_id] = []
         validation_results[primer_id].append(primer_result)
@@ -418,7 +423,12 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
     with open(output_file, 'w') as f:
         f.write("# Primer Validation Results\n\n")
         
-        for primer_id, primer_results in validation_results.items():
+        # Ensure validation_results is a dictionary before iterating
+        if not isinstance(validation_results, dict):
+            validation_results = {}
+        
+        for primer_id in sorted(validation_results.keys()):
+            primer_results = validation_results[primer_id]
             for i, result in enumerate(primer_results):
                 # Use index to distinguish between primer pairs
                 display_id = f"{primer_id}_design{i+1}" if len(primer_results) > 1 else primer_id
