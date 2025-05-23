@@ -24,7 +24,7 @@ from concurrent.futures import ProcessPoolExecutor
 import multiprocessing
 import random
 import string
-
+import concurrent.futures
 # Local imports
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
@@ -674,6 +674,9 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
     
     # Write all results to output file
     try:
+        # Add debug information
+        logging.info(f"Writing {len(all_results)} primer designs to {output_file}")
+        
         with open(output_file, 'w') as f:
             # Write header
             f.write("CHROM\tPOS\tREF\tALT\tReliability\tPrimer_Rank\t")
@@ -681,8 +684,16 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
             f.write("Right_Primer\tRight_Start\tRight_TM\tRight_GC\t")
             f.write("Product_Size\tPenalty\n")
             
+            # Check if all_results contains any entries
+            if not all_results:
+                logging.error("all_results list is empty - no primer data to write")
+                return 0
+                
             # Write primer data for all designs
-            for result in all_results:
+            for i, result in enumerate(all_results):
+                if i % 50 == 0:  # Log progress for large files
+                    logging.info(f"Writing primer {i+1}/{len(all_results)}")
+                    
                 chrom = result['chrom']
                 pos = result['position']
                 ref = result['ref']
@@ -694,38 +705,52 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                     f.write(f"{primer['left']['sequence']}\t{result['region_start'] + primer['left']['start']}\t{primer['left']['tm']}\t{primer['left']['gc_percent']}\t")
                     f.write(f"{primer['right']['sequence']}\t{result['region_start'] + primer['right']['start'] - primer['right']['length'] + 1}\t{primer['right']['tm']}\t{primer['right']['gc_percent']}\t")
                     f.write(f"{primer['product_size']}\t{primer['pair_penalty']}\n")
-        
-        # Post-process and select primers if contrast is enabled
-        if contrast and all_results:
-            logging.info(f"Selecting top {num_primers} primers using '{selection_criteria}' criteria")
-            selected_primers = select_best_primers(all_results, num_primers, selection_criteria)
             
-            # Write selected primers to specified output file if provided
-            if selected_output and selected_primers:
-                with open(selected_output, 'w') as f:
-                    # Write header with extra column for score
-                    f.write("Rank\tCHROM\tPOS\tREF\tALT\tReliability\tComposite_Score\t")
-                    f.write("Left_Primer\tLeft_Start\tLeft_TM\tLeft_GC\t")
-                    f.write("Right_Primer\tRight_Start\tRight_TM\tRight_GC\t")
-                    f.write("Product_Size\tPenalty\n")
-                    
-                    # Write data for selected primers
-                    for rank, result in enumerate(selected_primers, 1):
-                        primer = result['selected_primer']
-                        f.write(f"{rank}\t{result['chrom']}\t{result['position']}\t{result['ref']}\t{result['alt']}\t")
-                        f.write(f"{result['reliability']}\t{result['composite_score']:.4f}\t")
-                        f.write(f"{primer['left']['sequence']}\t{result['region_start'] + primer['left']['start']}\t{primer['left']['tm']}\t{primer['left']['gc_percent']}\t")
-                        f.write(f"{primer['right']['sequence']}\t{result['region_start'] + primer['right']['start'] - primer['right']['length'] + 1}\t{primer['right']['tm']}\t{primer['right']['gc_percent']}\t")
-                        f.write(f"{primer['product_size']}\t{primer['pair_penalty']}\n")
-                
-                logging.info(f"Selected {len(selected_primers)} primers written to {selected_output}")
-        
-        if successful_designs > 0:
-            logging.info(f"Successfully designed primers for {successful_designs} variants out of {sum(len(pd.read_csv(file, sep='\t')) for file in input_files)} total variants")
-            logging.info(f"Results written to {output_file}")
-        else:
-            logging.warning("No primers were successfully designed. Try again with different parameters.")
+            logging.info(f"Successfully wrote all {len(all_results)} primer designs to file")
+            
     except Exception as e:
-        logging.error(f"Error writing output file: {e}")
+        logging.error(f"Error writing to output file: {str(e)}", exc_info=True)
+        # Try to write to an alternative file to recover data
+        try:
+            alt_output = output_file + ".recovery"
+            logging.info(f"Attempting to write data to recovery file: {alt_output}")
+            with open(alt_output, 'w') as f:
+                import json
+                json.dump([{k: str(v) if not isinstance(v, (str, int, float, bool, list, dict)) else v 
+                            for k, v in r.items()} for r in all_results], f)
+            logging.info(f"Recovery data written to {alt_output}")
+        except Exception as e2:
+            logging.error(f"Failed to write recovery data: {str(e2)}")
+    
+    # Post-process and select primers if contrast is enabled
+    if contrast and all_results:
+        logging.info(f"Selecting top {num_primers} primers using '{selection_criteria}' criteria")
+        selected_primers = select_best_primers(all_results, num_primers, selection_criteria)
+        
+        # Write selected primers to specified output file if provided
+        if selected_output and selected_primers:
+            with open(selected_output, 'w') as f:
+                # Write header with extra column for score
+                f.write("Rank\tCHROM\tPOS\tREF\tALT\tReliability\tComposite_Score\t")
+                f.write("Left_Primer\tLeft_Start\tLeft_TM\tLeft_GC\t")
+                f.write("Right_Primer\tRight_Start\tRight_TM\tRight_GC\t")
+                f.write("Product_Size\tPenalty\n")
+                
+                # Write data for selected primers
+                for rank, result in enumerate(selected_primers, 1):
+                    primer = result['selected_primer']
+                    f.write(f"{rank}\t{result['chrom']}\t{result['position']}\t{result['ref']}\t{result['alt']}\t")
+                    f.write(f"{result['reliability']}\t{result['composite_score']:.4f}\t")
+                    f.write(f"{primer['left']['sequence']}\t{result['region_start'] + primer['left']['start']}\t{primer['left']['tm']}\t{primer['left']['gc_percent']}\t")
+                    f.write(f"{primer['right']['sequence']}\t{result['region_start'] + primer['right']['start'] - primer['right']['length'] + 1}\t{primer['right']['tm']}\t{primer['right']['gc_percent']}\t")
+                    f.write(f"{primer['product_size']}\t{primer['pair_penalty']}\n")
+            
+            logging.info(f"Selected {len(selected_primers)} primers written to {selected_output}")
+    
+    if successful_designs > 0:
+        logging.info(f"Successfully designed primers for {successful_designs} variants out of {sum(len(pd.read_csv(file, sep='\t')) for file in input_files)} total variants")
+        logging.info(f"Results written to {output_file}")
+    else:
+        logging.warning("No primers were successfully designed. Try again with different parameters.")
     
     return successful_designs
