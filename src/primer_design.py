@@ -657,6 +657,10 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                                     logging.error(f"Error in parallel processing: {str(e)}")
                                 finally:
                                     pbar.update(1)
+                    
+                # After parallel processing, add results to the main all_results list
+                all_results.extend(results)
+                logging.info(f"Added {len(results)} results from parallel processing to main results list")
             else:
                 # Original sequential processing
                 for idx, variant in tqdm(df_primer_compliant.iterrows(), 
