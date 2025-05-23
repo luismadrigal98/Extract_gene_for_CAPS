@@ -215,6 +215,9 @@ def main():
                                     help='Minimum percent of primer covered by alignment (default: 80.0)')
     validate_filter_settings.add_argument('--no_check_3prime', action='store_true',
                                     help='Do not check if 3\' end matches (default: False)')
+    validate_filter_settings.add_argument('--specific_output', type=str, required=False,
+                                            help='Output file for specific primer validation results',
+                                            default=None)
 
     # >>>> COMMANDS ARE MANAGED HERE <<<<< #
     # Execute the right command
@@ -278,7 +281,8 @@ def main():
             word_size=args.word_size,
             min_identity_pct=args.min_identity_pct,
             min_coverage=args.min_coverage,
-            check_3prime=not args.no_check_3prime
+            check_3prime=not args.no_check_3prime,
+            specific_output=args.specific_output
         )
 
     else:

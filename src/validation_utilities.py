@@ -194,10 +194,25 @@ def extract_amplicon_sequences(amplicon_coordinates, fasta_file):
     return amplicon_sequences
 
 def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_temp=False,
-                     evalue=0.1, task="blastn-short", word_size=7,
-                     min_identity_pct=90.0, min_coverage=80.0, check_3prime=True):
+                        evalue=0.1, task="blastn-short", word_size=7,
+                        min_identity_pct=90.0, min_coverage=80.0, check_3prime=True, 
+                        specific_output=None):  # Added parameter for specific primers output
     """
     Validate primers by BLASTing against target genomes and analyzing potential amplicons.
+    
+    Parameters:
+    primers_file (str): Path to the input file with primers.
+    genomes (list): List of genome FASTA files to BLAST against.
+    output_file (str): Path to the output file for validation results.
+    temp_dir (str, optional): Temporary directory for intermediate files.
+    keep_temp (bool, optional): Whether to keep the temporary files.
+    evalue (float, optional): E-value threshold for BLAST.
+    task (str, optional): BLAST task to use.
+    word_size (int, optional): Word size for BLAST.
+    min_identity_pct (float, optional): Minimum identity percentage for BLAST hits.
+    min_coverage (float, optional): Minimum coverage percentage for BLAST hits.
+    check_3prime (bool, optional): Whether to check 3' end matching.
+    specific_output (str, optional): Path to output file for primers specific to all genomes.
     """
     
     # Create temp directory
@@ -401,7 +416,59 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
             
             f.write("\n")
     
-    logger.info(f"Validation results written to {output_file}")
+    # NEW CODE: Output primers that are specific to all genomes
+    if specific_output:
+        # Find primers that are specific to all genomes
+        specific_primers = []
+        for result in validation_results:
+            all_specific = True
+            amplicon_lengths = {}
+            
+            # Check if primer is specific for all genomes
+            for genome_name, details in result['genomes'].items():
+                if not details.get('specific', False):
+                    all_specific = False
+                    break
+                amplicon_lengths[genome_name] = details.get('amplicon_length', 'N/A')
+            
+            # If specific for all genomes, add to our list
+            if all_specific:
+                primer_data = {
+                    'CHROM': result['chrom'],
+                    'POS': result['pos'],
+                    'REF': result['ref'],
+                    'ALT': result['alt'],
+                    'Left_Primer': result['left_primer'],
+                    'Right_Primer': result['right_primer'],
+                    'Primer_ID': result['primer_id']
+                }
+                
+                # Add amplicon lengths for each genome
+                for genome_name, length in amplicon_lengths.items():
+                    primer_data[f'Amplicon_Length_{genome_name}'] = length
+                
+                specific_primers.append(primer_data)
+        
+        # Write specific primers to file if any found
+        if specific_primers:
+            logger.info(f"Writing {len(specific_primers)} specific primers to {specific_output}")
+            
+            # Convert to DataFrame and write to file
+            specific_df = pd.DataFrame(specific_primers)
+            
+            # Order columns logically
+            columns = ['Primer_ID', 'CHROM', 'POS', 'REF', 'ALT', 'Left_Primer', 'Right_Primer']
+            # Add amplicon length columns
+            for genome_name in genomes:
+                genome_base = os.path.basename(genome_name)
+                if f'Amplicon_Length_{genome_base}' in specific_df.columns:
+                    columns.append(f'Amplicon_Length_{genome_base}')
+            
+            # Write to TSV file
+            specific_df.to_csv(specific_output, sep='\t', index=False, columns=columns)
+            logger.info(f"Specific primers ready for ordering saved to {specific_output}")
+        else:
+            logger.warning("No primers were specific to all genomes. No specific_output file created.")
     
     # Clean up temp directory if needed
     if not keep_temp and created_temp:
