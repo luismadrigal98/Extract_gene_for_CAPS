@@ -213,5 +213,8 @@ def process_variant_for_parallel(args):
             'primer_results': parsed_output
         }
         
-    except Exception:
+    except Exception as e:
+        # Print to stderr since logging isn't available in worker process
+        import sys
+        print(f"Error processing variant: {str(e)}", file=sys.stderr)
         return None

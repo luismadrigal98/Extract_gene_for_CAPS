@@ -507,7 +507,9 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 process_ids = [random_id() for _ in range(len(variant_items))]
                 
                 # Use batch size equal to number of workers for optimal resource use
-                batch_size = num_workers * 2  # Use 2x workers for better throughput
+                batch_size = min(num_workers * 2, 10)  # Use smaller batches for shorter timeouts
+                if timeout > 300:
+                    batch_size = num_workers * 2  # Use larger batches for longer timeouts
                 
                 with tqdm(total=len(variant_items), desc=f"Designing primers for {os.path.basename(input_file)} (parallel)") as pbar:
                     for i in range(0, len(variant_items), batch_size):
@@ -531,39 +533,47 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                             # Process results as they complete
                             for future in as_completed(future_to_args):
                                 try:
+                                    # Get variant info for better error messages
+                                    variant_info = future_to_args[future][0][1]
+                                    chrom = variant_info['CHROM']
+                                    pos = variant_info['POS']
+                                    
                                     result = future.result(timeout=600)  # Add overall future timeout too
                                     if result:
                                         results.append(result)
                                         successful_designs += 1
+                                        logging.debug(f"Successfully designed primer for {chrom}:{pos}")
+                                    else:
+                                        logging.warning(f"No primer designed for {chrom}:{pos} - process returned None")
                                 except concurrent.futures.TimeoutError:
                                     # Handle case where entire future times out
-                                    logging.error(f"Future execution timed out after 600 seconds")
+                                    variant_info = future_to_args[future][0][1]
+                                    logging.error(f"Future execution timed out after 600 seconds for variant {variant_info['CHROM']}:{variant_info['POS']}")
                                 except Exception as e:
-                                    # Handle other exceptions
-                                    logging.error(f"Error in parallel processing: {str(e)}")
+                                    # Handle other exceptions with more detail
+                                    variant_info = future_to_args[future][0][1]
+                                    logging.error(f"Error processing {variant_info['CHROM']}:{variant_info['POS']}: {str(e)}")
                                 finally:
                                     pbar.update(1)
         
                 # After parallel processing, add results to the main all_results list
                 all_results.extend(results)
                 logging.info(f"Added {len(results)} results from parallel processing to main results list")
-            else:
-                # Original sequential processing with optimization
-                if not parallel:
-                    batch_size = 10  # Process in small batches to maintain progress visibility
-                    variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
-                    
-                    with tqdm(total=len(variant_items), desc=f"Designing primers for {os.path.basename(input_file)}") as pbar:
-                        for i in range(0, len(variant_items), batch_size):
-                            batch_variants = variant_items[i:i+batch_size]
-                            
-                            # Process this small batch sequentially
-                            for variant_item in batch_variants:
-                                result = process_variant(variant_item)
-                                if result:
-                                    all_results.append(result)
-                                    successful_designs += 1
-                                pbar.update(1)
+            else: # Original sequential processing with optimization
+                batch_size = 10  # Process in small batches to maintain progress visibility
+                variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
+                
+                with tqdm(total=len(variant_items), desc=f"Designing primers for {os.path.basename(input_file)}") as pbar:
+                    for i in range(0, len(variant_items), batch_size):
+                        batch_variants = variant_items[i:i+batch_size]
+                        
+                        # Process this small batch sequentially
+                        for variant_item in batch_variants:
+                            result = process_variant(variant_item)
+                            if result:
+                                all_results.append(result)
+                                successful_designs += 1
+                            pbar.update(1)
     
         except Exception as e:
             logging.error(f"Error processing file {input_file}: {e}")
