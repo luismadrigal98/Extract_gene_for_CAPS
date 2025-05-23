@@ -559,21 +559,102 @@ def design_primers(input_files, reference_fasta, output_file, settings_file=None
                 # After parallel processing, add results to the main all_results list
                 all_results.extend(results)
                 logging.info(f"Added {len(results)} results from parallel processing to main results list")
-            else: # Original sequential processing with optimization
-                batch_size = 10  # Process in small batches to maintain progress visibility
-                variant_items = [(i, row) for i, row in df_primer_compliant.iterrows()]
-                
-                with tqdm(total=len(variant_items), desc=f"Designing primers for {os.path.basename(input_file)}") as pbar:
-                    for i in range(0, len(variant_items), batch_size):
-                        batch_variants = variant_items[i:i+batch_size]
+            else:  # Use original direct sequential processing (no batching)
+                # Process directly with dataframe rows like in the original code
+                with tqdm(df_primer_compliant.iterrows(), 
+                        desc=f"Designing primers for {os.path.basename(input_file)}", 
+                        total=len(df_primer_compliant)) as pbar:
+                    
+                    for _, variant in pbar:
+                        # Extract the variant info
+                        chrom = variant['CHROM']
+                        pos = variant['POS']
+                        ref = variant['REF']
+                        alt = variant['ALT']
                         
-                        # Process this small batch sequentially
-                        for variant_item in batch_variants:
-                            result = process_variant(variant_item)
-                            if result:
-                                all_results.append(result)
-                                successful_designs += 1
-                            pbar.update(1)
+                        # Calculate region to extract
+                        start = max(1, pos - flanking_size)
+                        end = pos + flanking_size
+                        target_pos = pos - start
+
+                        # Extract sequence
+                        sequence = extract_sequence(reference_fasta, chrom, start, end)
+                        if not sequence:
+                            logging.error(f"Failed to extract sequence for {chrom}:{pos}")
+                            continue
+                        
+                        # Create temp files
+                        if keep_temp:
+                            variant_dir = os.path.join(temp_dir, f"{chrom}_{pos}")
+                            if not os.path.exists(variant_dir):
+                                os.makedirs(variant_dir)
+                            input_file_path = os.path.join(variant_dir, "primer3_input.txt")
+                            output_file_path = os.path.join(variant_dir, "primer3_output.txt")
+                        else:
+                            temp_input = tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt')
+                            input_file_path = temp_input.name
+                            temp_input.close()
+                        
+                        # Create primer3 input
+                        try:
+                            create_primer3_input(f"M_{chrom}_{pos}", sequence, target_pos, target_length, 
+                                                default_settings, input_file_path)
+                        except Exception as e:
+                            logging.error(f"Failed to create Primer3 input for {chrom}:{pos}: {e}")
+                            if not keep_temp:
+                                os.unlink(input_file_path)
+                            continue
+                        
+                        # Run primer3
+                        primer3_exe_path = os.path.expanduser(primer3_exe)
+                        primer3_result = run_primer3(
+                            input_file=input_file_path, 
+                            primer3_exe=primer3_exe_path, 
+                            settings_file=settings_file, 
+                            primer3_args=primer3_args,
+                            also_get_formatted=keep_temp,
+                            timeout=timeout
+                        )
+                        
+                        # Handle the result
+                        if keep_temp and primer3_result and isinstance(primer3_result, tuple):
+                            boulder_output, formatted_output = primer3_result
+                            with open(output_file_path, 'w') as f:
+                                f.write(formatted_output)
+                            parsed_output = parse_primer3_output(boulder_output)
+                            if not boulder_output:
+                                logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
+                                continue
+                        else:
+                            primer3_output = primer3_result
+                            if keep_temp and primer3_output:
+                                with open(output_file_path, 'w') as f:
+                                    f.write(primer3_output)
+                            parsed_output = parse_primer3_output(primer3_output)
+                            if not primer3_output:
+                                logging.error(f"Failed to run Primer3 for {chrom}:{pos}")
+                                continue
+                        
+                        if parsed_output['num_returned'] == 0:
+                            logging.warning(f"No primers found for {chrom}:{pos}")
+                            continue
+                        
+                        # Add variant info to results
+                        result = {
+                            'chrom': chrom,
+                            'position': pos,
+                            'ref': ref,
+                            'alt': alt,
+                            'region_start': start,
+                            'region_end': end,
+                            'sequence': sequence,
+                            'target_position': target_pos,
+                            'reliability': variant['overall_reliability'],
+                            'primer_results': parsed_output
+                        }
+                        
+                        all_results.append(result)
+                        successful_designs += 1
     
         except Exception as e:
             logging.error(f"Error processing file {input_file}: {e}")
