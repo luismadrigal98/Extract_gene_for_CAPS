@@ -19,8 +19,8 @@ import logging
 # Add src to path for imports
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-from masking_vcf import mask_vcf_by_genes
-from ancestry_inference import infer_ancestry
+from masking_vcf import mask_variants
+from ancestry_inference import infer_ancestry_single
 from screen_variants import screen_variants
 from primer_design import design_primers
 
@@ -95,36 +95,39 @@ def main():
     try:
         # Step 1: Filter VCF for genic regions within ROI
         logging.info("Step 1: Filtering VCF for genic regions...")
-        mask_vcf_by_genes(
-            vcf_file=args.vcf,
-            gff3_file=args.gff3,
-            roi_file=args.roi_list,
-            output_file=filtered_vcf,
+        mask_variants(
+            vcf=args.vcf,
+            gff3=args.gff3,
+            roi_list=args.roi_list,
+            output=filtered_vcf,
             only_biallelic=True,
-            min_qual=args.min_qual,
+            min_quality=args.min_qual,
             filter_indels=True
         )
         
         # Step 2: Infer parental ancestry
         logging.info("Step 2: Inferring parental ancestry...")
-        infer_ancestry(
-            vcf_file=filtered_vcf,
-            roi_file=args.roi_list,
-            ancestry_file=args.ancestry_map,
-            output_file=ancestry_results,
-            context=20,
-            approach='single',
-            use_assembly_when_f2_missing=True
+        infer_ancestry_single(
+            vcf=filtered_vcf,
+            ROI_list=args.roi_list,
+            ancestry_log=args.ancestry_map,
+            output=ancestry_results,
+            use_assembly_when_f2_missing=True,
+            min_depth=3
         )
         
         # Step 3: Screen variants for primer compliance
         logging.info("Step 3: Screening variants for primer compliance...")
         screen_variants(
-            input_file=ancestry_results,
-            reference_fasta=args.reference,
-            output_file=screened_variants,
-            flanking_size=args.flanking_size,
-            target_parent=args.target_parent
+            tsv_list=[ancestry_results],
+            output_dir=os.path.dirname(screened_variants) or ".",
+            allele_col_pattern="allele",
+            reliability_thr=0.8,
+            diff_parent=args.target_parent,
+            amplicon_size=args.flanking_size * 2,
+            primer_size=20,
+            displacement=True,
+            displacement_steps=5
         )
         
         # Step 4: Design primers

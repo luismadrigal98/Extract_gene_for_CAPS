@@ -1,2 +1,4 @@
 To do list.txt
 remote_design.sh
+__pycache__/diagnostic_snp_finder.cpython-312.pyc
+src/__pycache__/masking_vcf.cpython-312.pyc
