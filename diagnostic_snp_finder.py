@@ -47,7 +47,7 @@ def main():
     parser.add_argument('--gff3', required=True,
                        help='Gene annotation file (GFF3 format)')
     parser.add_argument('--roi_list', required=True,
-                       help='ROI coordinates file (tab-separated with headers: ROI, Chr, Start, End)')
+                       help='ROI coordinates file (tab-separated with headers: ROI/ROI_name, Chr/Chrom, Start, End)')
     parser.add_argument('--ancestry_map', required=True,
                        help='File mapping F2 samples to parental lines')
     

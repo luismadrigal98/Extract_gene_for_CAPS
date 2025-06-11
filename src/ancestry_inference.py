@@ -244,6 +244,12 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
     except:
         roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
     
+    # Standardize column names - handle variations in column naming
+    if 'ROI' in roi_df.columns and 'ROI_name' not in roi_df.columns:
+        roi_df = roi_df.rename(columns={'ROI': 'ROI_name'})
+    if 'Chr' in roi_df.columns and 'Chrom' not in roi_df.columns:
+        roi_df = roi_df.rename(columns={'Chr': 'Chrom'})
+    
     # 5. Process each ROI separately
     for _, roi in roi_df.iterrows():
         roi_name = roi['ROI_name']
@@ -498,6 +504,12 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
         roi_df = pd.read_csv(ROI_list, sep='\t')
     except:
         roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
+    
+    # Standardize column names - handle variations in column naming
+    if 'ROI' in roi_df.columns and 'ROI_name' not in roi_df.columns:
+        roi_df = roi_df.rename(columns={'ROI': 'ROI_name'})
+    if 'Chr' in roi_df.columns and 'Chrom' not in roi_df.columns:
+        roi_df = roi_df.rename(columns={'Chr': 'Chrom'})
     
     # Get F2 samples and their parents
     f2_samples = {}
@@ -1094,6 +1106,12 @@ def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
         roi_df = pd.read_csv(ROI_list, sep='\t')
     except:
         roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
+    
+    # Standardize column names - handle variations in column naming
+    if 'ROI' in roi_df.columns and 'ROI_name' not in roi_df.columns:
+        roi_df = roi_df.rename(columns={'ROI': 'ROI_name'})
+    if 'Chr' in roi_df.columns and 'Chrom' not in roi_df.columns:
+        roi_df = roi_df.rename(columns={'Chr': 'Chrom'})
     
     # Get F2 samples and their parents
     f2_samples = {}

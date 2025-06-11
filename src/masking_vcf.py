@@ -115,6 +115,14 @@ def mask_variants(vcf, gff3, roi_list, output, only_biallelic=True, min_quality=
             roi_df = pd.read_csv(roi_list, delim_whitespace=True, header=0)
             logger.info(f"Successfully loaded {len(roi_df)} regions of interest with flexible whitespace")
 
+        # Standardize column names - handle both 'Chr' and 'Chrom' variations
+        if 'Chr' in roi_df.columns and 'Chrom' not in roi_df.columns:
+            roi_df = roi_df.rename(columns={'Chr': 'Chrom'})
+            logger.info("Renamed 'Chr' column to 'Chrom' for consistency")
+        elif 'Chrom' not in roi_df.columns:
+            logger.error("ROI file must contain a chromosome column named either 'Chr' or 'Chrom'")
+            raise ValueError("Invalid ROI file format: missing chromosome column")
+
         # Filter the VCF variants to keep only the chromosomes and positions in the ROI list
         logger.info("Filtering variants by regions of interest")
         roi_filtered_df = vcf_df[vcf_df.apply(
