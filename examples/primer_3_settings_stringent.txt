@@ -1,0 +1,80 @@
+Primer3 File - http://primer3.org
+P3_FILE_TYPE=settings
+
+P3_FILE_ID=Revised settings for diagnostic marker design (stricter dimer avoidance)
+
+# Basic primer picking parameters
+PRIMER_TASK=generic
+PRIMER_PICK_LEFT_PRIMER=1
+PRIMER_PICK_RIGHT_PRIMER=1
+PRIMER_PICK_INTERNAL_OLIGO=0
+
+# Size constraints - slightly tightened for more typical lengths
+PRIMER_OPT_SIZE=22
+PRIMER_MIN_SIZE=20
+PRIMER_MAX_SIZE=27
+
+# Melting temperature constraints - narrow range for consistent PCR
+PRIMER_OPT_TM=60.0
+PRIMER_MIN_TM=57.0
+PRIMER_MAX_TM=63.0
+PRIMER_PAIR_MAX_DIFF_TM=3.0
+
+# GC content constraints - important for stability
+PRIMER_MIN_GC=35.0
+PRIMER_OPT_GC_PERCENT=50.0
+PRIMER_MAX_GC=65.0
+PRIMER_GC_CLAMP=1
+
+# --- CRITICAL CHANGE: Stricter Structural Constraints to Reduce Primer-Dimers ---
+# The previous values were too permissive. These are much stricter and closer to Primer3 defaults.
+PRIMER_MAX_SELF_ANY_TH=8.00
+PRIMER_MAX_SELF_END_TH=3.00
+PRIMER_PAIR_MAX_COMPL_ANY_TH=8.00
+PRIMER_PAIR_MAX_COMPL_END_TH=3.00
+PRIMER_MAX_HAIRPIN_TH=24.00
+
+# Product size - narrowed range for more consistent amplification, still flexible
+PRIMER_PRODUCT_SIZE_RANGE=100-350
+
+# Mispriming constraints (retained from your original file)
+PRIMER_MAX_NS_ACCEPTED=0
+PRIMER_MAX_POLY_X=4
+PRIMER_PAIR_MAX_TEMPLATE_MISPRIMING_TH=40.0
+PRIMER_THERMODYNAMIC_TEMPLATE_ALIGNMENT=1
+PRIMER_THERMODYNAMIC_OLIGO_ALIGNMENT=1
+
+# Stability constraints
+PRIMER_MAX_END_STABILITY=9.0
+
+# Primer position constraints - force variant in amplicon but not in primer
+PRIMER_MIN_THREE_PRIME_DISTANCE=3
+
+# Salt correction and thermodynamic models (retained from your original file for your specific conditions)
+PRIMER_TM_FORMULA=1
+PRIMER_SALT_CORRECTIONS=1
+PRIMER_SALT_MONOVALENT=50.0
+PRIMER_SALT_DIVALENT=1.5
+PRIMER_DNTP_CONC=0.6
+
+# --- IMPORTANT CHANGE: Penalty weights to heavily penalize dimers and hairpins ---
+# Increased weights for self/pair complementarity, especially at the 3' end.
+PRIMER_PAIR_WT_DIFF_TM=1.0
+PRIMER_WT_SIZE_LT=0.5
+PRIMER_WT_SIZE_GT=0.5
+PRIMER_WT_TM_LT=1.0
+PRIMER_WT_TM_GT=1.0
+PRIMER_WT_GC_PERCENT_LT=0.5
+PRIMER_WT_GC_PERCENT_GT=0.5
+PRIMER_WT_SELF_ANY_TH=2.0
+PRIMER_WT_SELF_END_TH=5.0
+PRIMER_WT_HAIRPIN_TH=1.0
+PRIMER_PAIR_WT_COMPL_ANY_TH=2.0
+PRIMER_PAIR_WT_COMPL_END_TH=5.0
+PRIMER_WT_TEMPLATE_MISPRIMING_TH=1.0
+PRIMER_PAIR_WT_TEMPLATE_MISPRIMING_TH=1.0
+
+# Output settings
+PRIMER_NUM_RETURN=5
+PRIMER_EXPLAIN_FLAG=1
+=
