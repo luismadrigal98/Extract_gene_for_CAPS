@@ -106,6 +106,7 @@ def main():
     extract_parser.add_argument('--ancestry_log', type=str, required=True, help='Table with sample relationships')
     extract_parser.add_argument('--output', type=str, required=True, help='Base name for output files')
     extract_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
+    extract_parser.add_argument('--max_depth', type=int, default=200, help='Maximum read depth to consider a call reliable (filters out high-coverage artifacts)')
 
     # Searching for diagnostic markers
 
@@ -236,7 +237,7 @@ def main():
                                     use_assembly_when_f2_missing=args.use_assembly_when_f2_missing,
                                     min_depth=args.min_depth, max_depth=args.max_depth, context=args.context)
     elif args.command == 'ExtractF2':
-        extract_f2_genotypes(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.min_depth)
+        extract_f2_genotypes(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.min_depth, args.max_depth)
     elif args.command == 'Screen':
         screen_variants(args.inferred_alleles_tsv, args.output_dir, args.allele_col_pattern, args.overall_reliability_to_retain,
                         args.diff_parental, args.potential_size_of_amplicon, args.potential_size_of_primers, args.displace_amplicon_window,

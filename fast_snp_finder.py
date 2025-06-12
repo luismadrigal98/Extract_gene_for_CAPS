@@ -387,7 +387,8 @@ def main():
             ancestry_log=args.ancestry_map,
             output=ancestry_results,
             use_assembly_when_f2_missing=True,
-            min_depth=3
+            min_depth=args.min_depth,
+            max_depth=args.max_depth
         )
         
         # Step 3: Filter for high-quality diagnostic SNPs

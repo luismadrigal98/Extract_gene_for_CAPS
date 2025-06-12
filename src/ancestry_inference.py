@@ -1111,7 +1111,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
         else:
             logging.info(f"No results for ROI {roi_name}")
 
-def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3):
+def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3, max_depth=200):
     """
     Extract F2 genotypes and analyze consistency WITHIN each F2 plant across all markers in ROIs
     

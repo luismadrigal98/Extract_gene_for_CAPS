@@ -23,6 +23,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from masking_vcf import mask_variants
 from ancestry_inference import infer_ancestry_single
+
+# Import fast screening functions from the main directory
+sys.path.append(os.path.dirname(__file__))
 from fast_screen_variants import (fast_screen_variants_parallel, 
                                  fast_filter_diagnostic_variants,
                                  fast_apply_spacing_filter)
@@ -168,6 +171,10 @@ def main():
                        help='Target parental line (default: 664c)')
     parser.add_argument('--min_qual', type=float, default=60,
                        help='Minimum variant quality score')
+    parser.add_argument('--min_depth', type=int, default=3,
+                       help='Minimum read depth to consider a call reliable')
+    parser.add_argument('--max_depth', type=int, default=200,
+                       help='Maximum read depth to consider a call reliable (filters out high-coverage artifacts)')
     parser.add_argument('--min_reliability', choices=['low', 'medium', 'high'], 
                        default='medium', help='Minimum reliability level')
     parser.add_argument('--min_spacing', type=int, default=2000,
@@ -219,7 +226,9 @@ def main():
             ancestry_log=args.ancestry_map,
             output=ancestry_results,
             use_assembly_when_f2_missing=True,
-            min_depth=3
+            min_depth=args.min_depth,
+            max_depth=args.max_depth,
+            context=5  # Default context for F2 genotype consistency analysis
         )
         
         # Step 3: Ultra-fast SNP filtering
@@ -228,7 +237,6 @@ def main():
             # Skip primer screening completely for maximum speed
             logging.info("Skipping primer screening for maximum speed...")
             # Use simplified version without primer compliance
-            from fast_screen_variants import fast_filter_diagnostic_variants, fast_apply_spacing_filter
             
             df = pd.read_csv(ancestry_results, sep='\t')
             reliability_values = {'low': 1, 'medium': 2, 'high': 3}
@@ -267,6 +275,12 @@ def main():
         logging.info("=== ULTRA-FAST SNP Discovery Completed ===")
         logging.info(f"Found {num_snps} diagnostic SNPs in record time!")
         logging.info(f"Results written to: {diagnostic_snps}")
+        
+        if num_snps > 0:
+            logging.info("\nTo design primers for these SNPs, run:")
+            logging.info(f"python diagnostic_snp_finder.py --vcf {args.vcf} "
+                        f"--roi_list {args.roi_list} --ancestry_map {args.ancestry_map} "
+                        f"--output_prefix primer_design_run --target_parent {args.target_parent}")
         
     except Exception as e:
         logging.error(f"Pipeline failed: {str(e)}")
