@@ -26,7 +26,7 @@ from ancestry_inference import infer_ancestry_single
 
 # Import fast screening functions from the main directory
 sys.path.append(os.path.dirname(__file__))
-from fast_screen_variants import (fast_screen_variants_parallel, 
+from src.fast_screen_variants import (fast_screen_variants_parallel, 
                                  fast_filter_diagnostic_variants,
                                  fast_apply_spacing_filter)
 

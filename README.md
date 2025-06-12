@@ -154,10 +154,11 @@ python MarkerWizard.py Infer --vcf <VCF_FILE> --ROI_list <ROI_LIST> \
 ```
 
 Options:
-- `--context`: Number of variants to consider in contextual analysis
+- `--context`: Number of neighboring variants to consider for F2 genotype consistency analysis (detects recombination events and sequencing errors)
 - `--approach`: Approach to use ('multiple' or 'single')
 - `--use_assembly_when_f2_missing`: Use assembly data for positions without F2 data
-- `--min_depth`: Minimum read depth to consider a call reliable
+- `--min_depth`: Minimum read depth to consider a call reliable (default: 3)
+- `--max_depth`: Maximum read depth to consider a call reliable - filters out high-coverage artifacts (default: 200)
 
 ### 4. Screen Variants
 

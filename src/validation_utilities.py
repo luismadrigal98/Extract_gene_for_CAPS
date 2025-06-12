@@ -417,7 +417,7 @@ def validate_primers(primers_file, genomes, output_file, temp_dir=None, keep_tem
             f.write("\n")
     
     # NEW CODE: Output primers that are specific to all genomes
-    if specific_output:
+    if 1:
         # Find primers that are specific to all genomes
         specific_primers = []
         for result in validation_results:
