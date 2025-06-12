@@ -60,6 +60,10 @@ def main():
                        help='Target parental line to discriminate (default: 664c)')
     parser.add_argument('--min_qual', type=float, default=20,
                        help='Minimum variant quality score')
+    parser.add_argument('--min_depth', type=int, default=3,
+                       help='Minimum read depth to consider a call reliable')
+    parser.add_argument('--max_depth', type=int, default=200,
+                       help='Maximum read depth to consider a call reliable (filters out high-coverage artifacts)')
     parser.add_argument('--max_variants', type=int, default=200,
                        help='Maximum number of variants for primer design')
     
@@ -113,7 +117,8 @@ def main():
             ancestry_log=args.ancestry_map,
             output=ancestry_results,
             use_assembly_when_f2_missing=True,
-            min_depth=3
+            min_depth=args.min_depth,
+            max_depth=args.max_depth
         )
         
         # Step 3: Screen variants for primer compliance

@@ -92,7 +92,7 @@ def main():
     inference_parser.add_argument('--ROI_list', type=str, required=True, help='List of regions of interest (ROI) to be screened')
     inference_parser.add_argument('--ancestry_log', type=str, required=True, help='This should be a tab delimited file will the sample ID for the F2s and the parental lines involved.') 
     inference_parser.add_argument('--output', type=str, required=True, help="Output name for parental allele inference results")
-    inference_parser.add_argument('--context', type=int, default=20, help='How many variants to consider in the contextual analysis.')
+    inference_parser.add_argument('--context', type=int, default=20, help='Number of neighboring variants to consider for F2 genotype consistency analysis (detects recombination events and sequencing errors).')
     inference_parser.add_argument('--approach', type=str, default='single', choices=['multiple', 'single'], help='Approach to use for the ancestry inference.')
     inference_parser.add_argument('--use_assembly_when_f2_missing', action='store_true', 
                             help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
@@ -234,7 +234,7 @@ def main():
         elif args.approach == 'single':
             infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output, 
                                     use_assembly_when_f2_missing=args.use_assembly_when_f2_missing,
-                                    min_depth=args.min_depth, max_depth=args.max_depth)
+                                    min_depth=args.min_depth, max_depth=args.max_depth, context=args.context)
     elif args.command == 'ExtractF2':
         extract_f2_genotypes(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.min_depth)
     elif args.command == 'Screen':

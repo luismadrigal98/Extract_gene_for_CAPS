@@ -484,7 +484,7 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
 
-def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when_f2_missing=False, min_depth=3, max_depth=200):
+def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when_f2_missing=False, min_depth=3, max_depth=200, context=20):
     """
     Infer parental alleles for single F2 individuals with integrated assembly data handling.
     
@@ -1009,7 +1009,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             
             results.append(variant_record)
         
-        # STEP 4: Add context validation 
+        # STEP 4: Add F2 genotype consistency analysis
         results_with_context = []
         
         for i, result in enumerate(results):
@@ -1017,7 +1017,7 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             result_with_context = result.copy()
             
             # Define context window
-            window_size = 20
+            window_size = context
             start_idx = max(0, i - window_size//2)
             end_idx = min(len(results) - 1, i + window_size//2)
             context_variants = results[start_idx:end_idx+1]
@@ -1025,38 +1025,46 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             # Skip current variant
             context_variants = [v for v in context_variants if v['POS'] != result['POS']]
             
-            # Check for agreement with surrounding context for each parent
-            for parent in all_parents:
-                parent_allele = result.get(f"{parent}_allele", 'N')
-                
-                if parent_allele != 'N':
-                    # Count matching context variants
-                    matches = 0
-                    total = 0
+            # F2 genotype consistency analysis
+            for f2_id, (common_parent, alt_parent) in f2_samples.items():
+                if f2_id in variant:
+                    current_gt, current_depth, _ = extract_genotype(variant[f2_id], return_quality=True)
                     
-                    for v in context_variants:
-                        if v.get(f"{parent}_allele", 'N') != 'N':
-                            total += 1
-                            if v.get(f"{parent}_allele") == parent_allele:
-                                matches += 1
-                    
-                    if total >= 3:  # Only calculate if enough context
-                        result_with_context[f"{parent}_context_agreement"] = round(matches/total, 2)
+                    if current_gt != './.':
+                        # Count consistent genotypes in context
+                        consistent_gts = 0
+                        total_gts = 0
+                        context_switch_count = 0
                         
-                        # Flag potential errors
-                        if matches/total < 0.3:
-                            result_with_context[f"{parent}_context_conflict"] = True
+                        prev_gt = None
+                        for cv in context_variants:
+                            if f2_id in cv and cv['POS'] in roi_variants['POS'].values:
+                                # Find the variant record in roi_variants
+                                ctx_variant = roi_variants[roi_variants['POS'] == cv['POS']]
+                                if len(ctx_variant) > 0 and f2_id in ctx_variant.iloc[0]:
+                                    ctx_gt, ctx_depth, _ = extract_genotype(ctx_variant.iloc[0][f2_id], return_quality=True)
+                                    
+                                    if ctx_gt != './.':
+                                        total_gts += 1
+                                        if ctx_gt == current_gt:
+                                            consistent_gts += 1
+                                        
+                                        # Count genotype switches (potential recombination)
+                                        if prev_gt is not None and prev_gt != ctx_gt:
+                                            context_switch_count += 1
+                                        prev_gt = ctx_gt
+                        
+                        # Calculate consistency metrics
+                        if total_gts >= 3:  # Only calculate if enough context
+                            consistency_ratio = consistent_gts / total_gts
+                            result_with_context[f"{f2_id}_context_consistency"] = round(consistency_ratio, 2)
+                            result_with_context[f"{f2_id}_context_switches"] = context_switch_count
                             
-                            # Reduce confidence for variants that conflict with context
-                            if f"{parent}_confidence" in result:
-                                result_with_context[f"{parent}_confidence"] *= 0.5
-                                
-                                # Update reliability if confidence is reduced
-                                new_conf = result_with_context[f"{parent}_confidence"]
-                                if new_conf < 0.6:
-                                    result_with_context[f"{parent}_reliability"] = "low"
-                                elif new_conf < 0.8:
-                                    result_with_context[f"{parent}_reliability"] = "medium"
+                            # Flag potential sequencing errors or recombination events
+                            if consistency_ratio < 0.3:
+                                result_with_context[f"{f2_id}_potential_error"] = True
+                            elif context_switch_count > 2:
+                                result_with_context[f"{f2_id}_potential_recombination"] = True
             
             results_with_context.append(result_with_context)
         
