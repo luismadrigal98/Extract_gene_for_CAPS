@@ -8731,3 +8731,4 @@ venv/lib/python3.12/site-packages/tzdata-2025.2.dist-info/licenses/licenses/LICE
 examples/ROI_bed.txt
 fast_snp_job.sh
 ultra_fast_job.sh
+src/__pycache__/fast_screen_variants.cpython-312.pyc
