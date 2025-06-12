@@ -1026,45 +1026,51 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             context_variants = [v for v in context_variants if v['POS'] != result['POS']]
             
             # F2 genotype consistency analysis
-            for f2_id, (common_parent, alt_parent) in f2_samples.items():
-                if f2_id in variant:
-                    current_gt, current_depth, _ = extract_genotype(variant[f2_id], return_quality=True)
-                    
-                    if current_gt != './.':
-                        # Count consistent genotypes in context
-                        consistent_gts = 0
-                        total_gts = 0
-                        context_switch_count = 0
+            current_pos = result['POS']
+            current_variant = roi_variants[roi_variants['POS'] == current_pos]
+            
+            if len(current_variant) > 0:
+                current_variant = current_variant.iloc[0]
+                
+                for f2_id, (common_parent, alt_parent) in f2_samples.items():
+                    if f2_id in current_variant:
+                        current_gt, current_depth, _ = extract_genotype(current_variant[f2_id], return_quality=True)
                         
-                        prev_gt = None
-                        for cv in context_variants:
-                            if f2_id in cv and cv['POS'] in roi_variants['POS'].values:
-                                # Find the variant record in roi_variants
-                                ctx_variant = roi_variants[roi_variants['POS'] == cv['POS']]
-                                if len(ctx_variant) > 0 and f2_id in ctx_variant.iloc[0]:
-                                    ctx_gt, ctx_depth, _ = extract_genotype(ctx_variant.iloc[0][f2_id], return_quality=True)
-                                    
-                                    if ctx_gt != './.':
-                                        total_gts += 1
-                                        if ctx_gt == current_gt:
-                                            consistent_gts += 1
-                                        
-                                        # Count genotype switches (potential recombination)
-                                        if prev_gt is not None and prev_gt != ctx_gt:
-                                            context_switch_count += 1
-                                        prev_gt = ctx_gt
-                        
-                        # Calculate consistency metrics
-                        if total_gts >= 3:  # Only calculate if enough context
-                            consistency_ratio = consistent_gts / total_gts
-                            result_with_context[f"{f2_id}_context_consistency"] = round(consistency_ratio, 2)
-                            result_with_context[f"{f2_id}_context_switches"] = context_switch_count
+                        if current_gt != './.':
+                            # Count consistent genotypes in context
+                            consistent_gts = 0
+                            total_gts = 0
+                            context_switch_count = 0
                             
-                            # Flag potential sequencing errors or recombination events
-                            if consistency_ratio < 0.3:
-                                result_with_context[f"{f2_id}_potential_error"] = True
-                            elif context_switch_count > 2:
-                                result_with_context[f"{f2_id}_potential_recombination"] = True
+                            prev_gt = None
+                            for cv in context_variants:
+                                if f2_id in cv and cv['POS'] in roi_variants['POS'].values:
+                                    # Find the variant record in roi_variants
+                                    ctx_variant = roi_variants[roi_variants['POS'] == cv['POS']]
+                                    if len(ctx_variant) > 0 and f2_id in ctx_variant.iloc[0]:
+                                        ctx_gt, ctx_depth, _ = extract_genotype(ctx_variant.iloc[0][f2_id], return_quality=True)
+                                        
+                                        if ctx_gt != './.':
+                                            total_gts += 1
+                                            if ctx_gt == current_gt:
+                                                consistent_gts += 1
+                                            
+                                            # Count genotype switches (potential recombination)
+                                            if prev_gt is not None and prev_gt != ctx_gt:
+                                                context_switch_count += 1
+                                            prev_gt = ctx_gt
+                            
+                            # Calculate consistency metrics
+                            if total_gts >= 3:  # Only calculate if enough context
+                                consistency_ratio = consistent_gts / total_gts
+                                result_with_context[f"{f2_id}_context_consistency"] = round(consistency_ratio, 2)
+                                result_with_context[f"{f2_id}_context_switches"] = context_switch_count
+                                
+                                # Flag potential sequencing errors or recombination events
+                                if consistency_ratio < 0.3:
+                                    result_with_context[f"{f2_id}_potential_error"] = True
+                                elif context_switch_count > 2:
+                                    result_with_context[f"{f2_id}_potential_recombination"] = True
             
             results_with_context.append(result_with_context)
         

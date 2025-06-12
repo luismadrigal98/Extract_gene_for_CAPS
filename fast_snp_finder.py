@@ -338,6 +338,10 @@ def main():
                        help='Target parental line to discriminate (default: 664c)')
     parser.add_argument('--min_qual', type=float, default=60,
                        help='Minimum variant quality score')
+    parser.add_argument('--min_depth', type=int, default=3,
+                       help='Minimum read depth to consider a call reliable')
+    parser.add_argument('--max_depth', type=int, default=200,
+                       help='Maximum read depth to consider a call reliable (filters out high-coverage artifacts)')
     parser.add_argument('--min_reliability', choices=['low', 'medium', 'high'], 
                        default='medium', help='Minimum reliability level for SNPs')
     parser.add_argument('--min_spacing', type=int, default=1000,
