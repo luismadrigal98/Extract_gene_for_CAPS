@@ -226,6 +226,55 @@ This integrated approach significantly improves the success rate of diagnostic m
 - `quality_score`: Comprehensive quality metric
 - `primer_compliant`: Primer design feasibility (if checked)
 
+## New Parameters (v2.0)
+
+### Quality Control Parameters
+
+#### `--max_depth` (Default: 200)
+**Purpose**: Filters out variants with suspiciously high read depth that could indicate:
+- Mapping artifacts
+- Repetitive regions
+- Copy number variations
+- Sequencing duplicates
+
+**Usage**: Variants with depth > max_depth receive low confidence scores but are retained for completeness.
+
+**Recommendation**: 
+- Standard datasets: 200 (default)
+- High-coverage datasets: 300-500
+- Targeted sequencing: 1000+
+
+#### `--context` (Default: 5)
+**Purpose**: Number of neighboring variants to consider for F2 genotype consistency analysis. This parameter now correctly:
+- Detects recombination events in F2 individuals
+- Identifies potential sequencing errors
+- Validates Mendelian inheritance patterns
+- Does NOT perform flawed parental allele contextual analysis (fixed in v2.0)
+
+**Usage**: Higher values increase stringency but may remove valid variants in high-diversity regions.
+
+**Recommendation**:
+- Low diversity regions: 10-15
+- Standard analysis: 5 (default)  
+- High diversity regions: 2-3
+
+### Performance Parameters
+
+#### `--n_workers` (Default: auto)
+**Purpose**: Number of parallel workers for CPU-intensive operations.
+
+**Usage**: 
+- Auto-detected as `min(CPU_count - 1, 4)`
+- Increase for large datasets on high-core systems
+- Decrease if memory becomes limiting
+
+#### `--skip_primer_screen`
+**Purpose**: Skip primer compliance checking for maximum speed.
+
+**Usage**: Use when you only need diagnostic variant identification without primer design constraints.
+
+**Speed improvement**: ~3-5x faster processing
+
 ## Advanced Features
 
 ### Optimization Options
