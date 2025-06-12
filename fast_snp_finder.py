@@ -31,9 +31,9 @@ logging.basicConfig(
 )
 
 def filter_high_quality_snps(ancestry_file, output_file, target_parent='664c', 
-                            min_reliability='medium', min_spacing=1000):
+                            min_reliability='high', min_spacing=1000, require_complete_f2=True):
     """
-    Filter ancestry results to find high-quality diagnostic SNPs with good spacing.
+    Filter ancestry results to find high-quality diagnostic SNPs with complete F2 information.
     
     Args:
         ancestry_file: Path to ancestry inference results
@@ -41,10 +41,12 @@ def filter_high_quality_snps(ancestry_file, output_file, target_parent='664c',
         target_parent: Target parental line (e.g., '664c')
         min_reliability: Minimum reliability level ('low', 'medium', 'high')
         min_spacing: Minimum distance between selected SNPs (bp)
+        require_complete_f2: If True, only keep variants with complete F2 data
     """
     import pandas as pd
     
     logging.info(f"Filtering high-quality SNPs from {ancestry_file}")
+    logging.info(f"Requiring complete F2 information: {require_complete_f2}")
     
     # Read ancestry results
     df = pd.read_csv(ancestry_file, sep='\t')
@@ -54,18 +56,102 @@ def filter_high_quality_snps(ancestry_file, output_file, target_parent='664c',
     reliability_values = {'low': 1, 'medium': 2, 'high': 3}
     min_rel_value = reliability_values[min_reliability]
     
-    # Filter for complete information and high reliability
+    # Start with basic quality filters
     filtered = df[
         (df['complete_info'] == True) &
         (df['overall_reliability'].map(reliability_values) >= min_rel_value) &
         (df['has_f2_data'] == True)
     ].copy()
     
-    logging.info(f"After quality filtering: {len(filtered)} variants")
+    logging.info(f"After basic quality filtering: {len(filtered)} variants")
+    
+    # Additional filter for complete F2 evidence if requested
+    if require_complete_f2:
+        # Look for variants with high-quality evidence from multiple sources
+        # Priority: direct_parental > f2_inference > haplotype_inference > low_depth
+        
+        # Find parental source columns
+        source_cols = [col for col in filtered.columns if col.endswith('_source')]
+        data_status_cols = [col for col in filtered.columns if col.endswith('_data_status')]
+        reliability_cols = [col for col in filtered.columns if col.endswith('_reliability')]
+        context_cols = [col for col in filtered.columns if col.endswith('_context_agreement')]
+        
+        def has_complete_evidence(row):
+            """Check if variant has complete F2 information from all evidence sources"""
+            # Get all parent names
+            parents = list(set([col.replace('_source', '').replace('_data_status', '').replace('_reliability', '').replace('_allele', '') 
+                              for col in filtered.columns if any(suffix in col for suffix in ['_source', '_data_status', '_reliability', '_allele'])]))
+            
+            if not parents:
+                return False
+                
+            # Count evidence quality for each parent
+            high_quality_parents = 0
+            total_parents = len(parents)
+            
+            for parent in parents:
+                parent_source = row.get(f"{parent}_source", "")
+                parent_status = row.get(f"{parent}_data_status", "")
+                parent_reliability = row.get(f"{parent}_reliability", "")
+                parent_context = row.get(f"{parent}_context_agreement", 1.0)  # Default to good agreement
+                
+                # Score this parent's evidence quality
+                quality_score = 0
+                
+                # Source quality (highest priority)
+                if parent_source == 'direct_parental':
+                    quality_score += 3
+                elif parent_source in ['f2_inference', 'f2_haplotype_inference']:
+                    quality_score += 2
+                elif parent_source == 'haplotype_block':
+                    quality_score += 1
+                
+                # Data status bonus
+                if parent_status == 'direct':
+                    quality_score += 2
+                elif parent_status == 'inferred':
+                    quality_score += 1
+                
+                # Reliability bonus
+                if parent_reliability == 'high':
+                    quality_score += 2
+                elif parent_reliability == 'medium':
+                    quality_score += 1
+                
+                # Context agreement bonus (if available)
+                if isinstance(parent_context, (int, float)) and parent_context >= 0.8:
+                    quality_score += 1
+                elif isinstance(parent_context, (int, float)) and parent_context >= 0.6:
+                    quality_score += 0.5
+                
+                # Consider this parent as "high quality" if score >= 4 (combination of good source + status + reliability)
+                if quality_score >= 4:
+                    high_quality_parents += 1
+            
+            # Require that most parents (at least 75%) have high-quality evidence
+            return high_quality_parents >= (total_parents * 0.75)
+        
+        if source_cols:  # Only apply if we have source information
+            complete_f2_filtered = filtered[filtered.apply(has_complete_evidence, axis=1)].copy()
+            logging.info(f"After complete F2 evidence filter: {len(complete_f2_filtered)} variants")
+            
+            if len(complete_f2_filtered) > 0:
+                filtered = complete_f2_filtered
+            else:
+                logging.warning("Complete F2 filter removed all variants - using less stringent filter")
+                # Fallback to simpler filter if the strict one removes everything
+                simple_f2_filtered = filtered[
+                    (filtered['complete_info'] == True) &
+                    (filtered['has_f2_data'] == True)
+                ].copy()
+                logging.info(f"Using fallback filter: {len(simple_f2_filtered)} variants")
+                filtered = simple_f2_filtered
+        else:
+            logging.warning("No source columns found - skipping F2 completeness filter")
     
     if len(filtered) == 0:
         logging.warning("No variants passed quality filters!")
-        return
+        return 0
     
     # Find diagnostic SNPs (target parent differs from others)
     target_col = f"{target_parent}_allele"
@@ -119,11 +205,63 @@ def filter_high_quality_snps(ancestry_file, output_file, target_parent='664c',
     
     # Sort by quality metrics for final selection
     if len(selected_df) > 0:
-        # Add quality score based on reliability and completeness
-        selected_df['quality_score'] = selected_df.apply(
-            lambda x: reliability_values[x['overall_reliability']] + 
-                     (1 if x['complete_info'] else 0), axis=1
-        )
+        # Add comprehensive quality score based on multiple factors
+        def calculate_quality_score(row):
+            """Calculate comprehensive quality score for variant selection"""
+            score = 0
+            
+            # Base reliability score (3 points max)
+            score += reliability_values[row['overall_reliability']]
+            
+            # Complete info bonus (2 points)
+            if row['complete_info']:
+                score += 2
+            
+            # F2 data availability bonus (1 point)  
+            if row['has_f2_data']:
+                score += 1
+            
+            # Context agreement bonuses (scan for context columns)
+            context_bonus = 0
+            context_count = 0
+            for col in row.index:
+                if col.endswith('_context_agreement') and pd.notna(row[col]):
+                    try:
+                        context_val = float(row[col])
+                        if context_val >= 0.8:
+                            context_bonus += 1
+                        elif context_val >= 0.6:
+                            context_bonus += 0.5
+                        context_count += 1
+                    except (ValueError, TypeError):
+                        pass
+            
+            # Average context bonus (up to 2 points)
+            if context_count > 0:
+                score += min(2, context_bonus / context_count * 2)
+            
+            # Evidence source diversity bonus (up to 2 points)
+            source_diversity = 0
+            source_types = set()
+            for col in row.index:
+                if col.endswith('_source') and pd.notna(row[col]):
+                    source_val = str(row[col])
+                    if source_val in ['direct_parental', 'f2_inference', 'f2_haplotype_inference', 'haplotype_block']:
+                        source_types.add(source_val)
+            
+            # Bonus for having multiple types of evidence
+            if 'direct_parental' in source_types:
+                source_diversity += 1
+            if any(s in source_types for s in ['f2_inference', 'f2_haplotype_inference']):
+                source_diversity += 1
+            if len(source_types) >= 2:
+                source_diversity += 0.5
+            
+            score += min(2, source_diversity)
+            
+            return round(score, 2)
+        
+        selected_df['quality_score'] = selected_df.apply(calculate_quality_score, axis=1)
         
         # Sort by quality score descending, then by position
         selected_df = selected_df.sort_values(['quality_score', 'CHROM', 'POS'], 
@@ -140,9 +278,39 @@ def filter_high_quality_snps(ancestry_file, output_file, target_parent='664c',
         logging.info(f"Quality filtered: {len(filtered)}")
         logging.info(f"Diagnostic: {len(diagnostic)}")
         logging.info(f"Final selected: {len(selected_df)}")
+        logging.info(f"Min spacing applied: {min_spacing}bp")
+        
+        # Log quality score distribution
+        if 'quality_score' in selected_df.columns:
+            logging.info(f"Quality score range: {selected_df['quality_score'].min():.1f} - {selected_df['quality_score'].max():.1f}")
+            logging.info(f"Average quality score: {selected_df['quality_score'].mean():.1f}")
+        
+        # Log reliability distribution
         logging.info(f"Reliability distribution:")
         for rel in selected_df['overall_reliability'].value_counts().items():
             logging.info(f"  {rel[0]}: {rel[1]}")
+        
+        # Log evidence source summary
+        logging.info(f"Evidence source summary:")
+        source_summary = {}
+        for col in selected_df.columns:
+            if col.endswith('_source'):
+                parent = col.replace('_source', '')
+                sources = selected_df[col].value_counts()
+                source_summary[parent] = sources.to_dict()
+        
+        for parent, sources in source_summary.items():
+            logging.info(f"  {parent}: {sources}")
+        
+        # Show top candidates with their details
+        logging.info(f"Top 5 diagnostic SNPs:")
+        top_5 = selected_df.head(5)
+        for idx, row in top_5.iterrows():
+            chrom, pos = row['CHROM'], row['POS']
+            quality = row.get('quality_score', 'N/A')
+            reliability = row['overall_reliability']
+            target_allele = row.get(f'{target_parent}_allele', 'N/A')
+            logging.info(f"  {chrom}:{pos} (Q:{quality}, R:{reliability}, {target_parent}:{target_allele})")
     
     return len(selected_df) if len(selected_df) > 0 else 0
 
