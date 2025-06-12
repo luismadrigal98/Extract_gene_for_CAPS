@@ -97,6 +97,7 @@ def main():
     inference_parser.add_argument('--use_assembly_when_f2_missing', action='store_true', 
                             help='Use assembly data for positions without F2 data (if False, positions without F2 data will be skipped)')
     inference_parser.add_argument('--min_depth', type=int, default=3, help='Minimum read depth to consider a call reliable')
+    inference_parser.add_argument('--max_depth', type=int, default=200, help='Maximum read depth to consider a call reliable (filters out high-coverage artifacts)')
 
     # Add a new parser after the 'Infer' parser, around line 108
     extract_parser = subparsers.add_parser('ExtractF2', help='Extract F2 genotypes from VCF file')
@@ -233,7 +234,7 @@ def main():
         elif args.approach == 'single':
             infer_ancestry_single(args.vcf, args.ROI_list, args.ancestry_log, args.output, 
                                     use_assembly_when_f2_missing=args.use_assembly_when_f2_missing,
-                                    min_depth=args.min_depth)
+                                    min_depth=args.min_depth, max_depth=args.max_depth)
     elif args.command == 'ExtractF2':
         extract_f2_genotypes(args.vcf, args.ROI_list, args.ancestry_log, args.output, args.min_depth)
     elif args.command == 'Screen':

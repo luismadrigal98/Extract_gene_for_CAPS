@@ -484,7 +484,7 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
 
-def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when_f2_missing=False, min_depth=3):
+def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when_f2_missing=False, min_depth=3, max_depth=200):
     """
     Infer parental alleles for single F2 individuals with integrated assembly data handling.
     
@@ -562,8 +562,8 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                         gt, depth, _ = extract_genotype(variant[parent], return_quality=True)
                         pos = variant['POS']
                         
-                        # Only use reliable homozygous calls
-                        if (gt == '0/0' or gt == '1/1') and depth >= min_depth:
+                        # Only use reliable homozygous calls with appropriate depth
+                        if (gt == '0/0' or gt == '1/1') and min_depth <= depth <= max_depth:
                             allele = '0' if gt == '0/0' else '1'
                             haplotype.append((pos, allele))
                 
@@ -673,22 +673,28 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                 if parent in variant:
                     gt, depth, _ = extract_genotype(variant[parent], return_quality=True)
                     
-                    if gt == '0/0' and depth >= min_depth:
+                    if gt == '0/0' and min_depth <= depth <= max_depth:
                         parent_allele = '0'
                         parent_confidence = min(0.5 + (depth / 20), 0.95)
                         parent_reliability = 'high' if depth >= 10 else 'medium'
                         parent_source = 'direct_parental'
                     
-                    elif gt == '1/1' and depth >= min_depth:
+                    elif gt == '1/1' and min_depth <= depth <= max_depth:
                         parent_allele = '1'
                         parent_confidence = min(0.5 + (depth / 20), 0.95)
                         parent_reliability = 'high' if depth >= 10 else 'medium'
                         parent_source = 'direct_parental'
-                    elif gt != './.':  # Low depth but still has data
-                        parent_allele = '0' if gt == '0/0' else '1'
-                        parent_confidence = 0.3  # Low confidence due to insufficient depth
-                        parent_reliability = 'low'
-                        parent_source = 'low_depth_parental'
+                    elif gt != './.':  # Low depth or high depth but still has data
+                        if depth < min_depth:
+                            parent_allele = '0' if gt == '0/0' else '1'
+                            parent_confidence = 0.3  # Low confidence due to insufficient depth
+                            parent_reliability = 'low'
+                            parent_source = 'low_depth_parental'
+                        elif depth > max_depth:
+                            parent_allele = '0' if gt == '0/0' else '1'
+                            parent_confidence = 0.2  # Very low confidence due to excessive depth (possible artifacts)
+                            parent_reliability = 'low'
+                            parent_source = 'high_depth_parental'
                 
                 # TIER 2: F2-contingent haplotype evidence
                 if parent_allele == 'N' and has_f2_data:
@@ -784,6 +790,10 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
                             # Get F2 genotype
                             f2_gt, f2_depth, _ = extract_genotype(variant[sample_id], return_quality=True)
                             if f2_gt == './.':
+                                continue
+                            
+                            # Skip if depth is outside acceptable range
+                            if f2_depth < min_depth or f2_depth > max_depth:
                                 continue
                             
                             # Get region pattern
