@@ -244,6 +244,9 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
     except:
         roi_df = pd.read_csv(ROI_list, delim_whitespace=True)
     
+    # Initialize list to store all simplified results for consolidation
+    all_simplified_results = []
+    
     # Standardize column names - handle variations in column naming
     if 'ROI' in roi_df.columns and 'ROI_name' not in roi_df.columns:
         roi_df = roi_df.rename(columns={'ROI': 'ROI_name'})
@@ -483,6 +486,24 @@ def infer_ancestry_multiple(vcf, ROI_list, ancestry_log, output, context_window=
                                                            if col not in ['CHROM', 'POS', 'REF', 'ALT', 'confidence']] + ['confidence']
         pd.DataFrame(simplified_results)[simplified_cols].to_csv(simplified_output, sep='\t', index=False)
         print(f"Simplified results for ROI {roi_name} saved to {simplified_output}")
+        
+        # Store simplified results for consolidation
+        all_simplified_results.extend(simplified_results)
+
+    # Create consolidated output file with expected naming pattern for downstream tools
+    if all_simplified_results:
+        consolidated_output = f"{output}_ancestry_inferred.tsv"
+        if all_simplified_results:
+            consolidated_df = pd.DataFrame(all_simplified_results)
+            # Ensure consistent column ordering
+            base_cols = ['CHROM', 'POS', 'REF', 'ALT']
+            allele_cols = [col for col in consolidated_df.columns if col.endswith('_allele')]
+            other_cols = [col for col in consolidated_df.columns if col not in base_cols + allele_cols]
+            final_cols = base_cols + sorted(allele_cols) + sorted(other_cols)
+            
+            consolidated_df[final_cols].to_csv(consolidated_output, sep='\t', index=False)
+            print(f"Consolidated ancestry inference results saved to {consolidated_output}")
+            print(f"This file can be used directly with the screening step")
 
 def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when_f2_missing=False, min_depth=3, max_depth=200, context=20):
     """
@@ -530,6 +551,9 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
     for _, (common, alt) in f2_samples.items():
         all_parents.add(common)
         all_parents.add(alt)
+    
+    # Initialize list to store all simplified results for consolidation
+    all_simplified_results = []
     
     # Process each ROI
     for _, roi in roi_df.iterrows():
@@ -1108,8 +1132,25 @@ def infer_ancestry_single(vcf, ROI_list, ancestry_log, output, use_assembly_when
             simplified_output = f"{output}_simplified_{roi_name}.tsv"
             pd.DataFrame(simplified_results).to_csv(simplified_output, sep='\t', index=False)
             logging.info(f"Saved simplified results to {simplified_output}")
+            
+            # Store simplified results for consolidation
+            all_simplified_results.extend(simplified_results)
         else:
             logging.info(f"No results for ROI {roi_name}")
+
+    # Create consolidated output file with expected naming pattern for downstream tools
+    if all_simplified_results:
+        consolidated_output = f"{output}_ancestry_inferred.tsv"
+        consolidated_df = pd.DataFrame(all_simplified_results)
+        # Ensure consistent column ordering
+        base_cols = ['CHROM', 'POS', 'REF', 'ALT']
+        allele_cols = [col for col in consolidated_df.columns if col.endswith('_allele')]
+        other_cols = [col for col in consolidated_df.columns if col not in base_cols + allele_cols]
+        final_cols = base_cols + sorted(allele_cols) + sorted(other_cols)
+        
+        consolidated_df[final_cols].to_csv(consolidated_output, sep='\t', index=False)
+        logging.info(f"Consolidated ancestry inference results saved to {consolidated_output}")
+        logging.info(f"This file can be used directly with the screening step")
 
 def extract_f2_genotypes(vcf, ROI_list, ancestry_log, output, min_depth=3, max_depth=200):
     """
