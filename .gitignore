@@ -1,7 +1,28 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Original entries
 To do list.txt
 remote_design.sh
-__pycache__/diagnostic_snp_finder.cpython-312.pyc
-src/__pycache__/masking_vcf.cpython-312.pyc
 diagnostic_snp_finder.log
 run_diagnostic_pipeline.sh
 .venv/lib64
